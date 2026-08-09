@@ -1,7 +1,20 @@
 [package]
-name = "zed-pkg-test/contract-conformance-tests"
+org = "zed-pkg-test"
+name = "contract-conformance-tests"
 version = "0.1.0"
 type = "test-suite"
+description = "Deterministic state-model, idempotency, serialization, and protocol contract conformance tests."
+license = "MIT"
+
+[package.repository]
+vcs = "git"
+url = "https://github.com/zed-pkg-test/contract-conformance-tests"
+
+[install]
+dir = ".vendor/.zed"
+
+[publish]
+exclude = ["artifacts/**", "vendor/**", ".vendor/**", ".env", ".env.*", "__pycache__/**", ".pytest_cache/**"]
 
 [develop]
 commands = [
