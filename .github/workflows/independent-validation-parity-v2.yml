@@ -65,7 +65,7 @@ jobs:
           ref: ${{ needs.matrix.outputs.api_docs_ref }}
           path: producer/.deps/api-docs
           persist-credentials: false
-      - uses: actions/setup-node@1e60f620b9541dca151540016ba637bae5c2bf7a
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: "22.16.0"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
