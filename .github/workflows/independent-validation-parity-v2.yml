@@ -78,7 +78,7 @@ jobs:
       - name: Certify receipt, scopes, route bindings, and privacy boundary
         run: node scripts/certify-validation-parity.mjs producer "${{ matrix.repository }}" "${{ matrix.ref }}"
       - name: Compile TypeScript output
-        run: npx --yes --package typescript@5.9.2 tsc -- --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext producer/generated/final/typescript/isomorphic/types.ts
+        run: npx --yes --package typescript@5.9.2 tsc --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext producer/generated/final/typescript/isomorphic/types.ts
       - name: Compile Rust output
         run: rustc --edition=2021 --crate-type=lib producer/generated/final/rust/isomorphic/src/lib.rs -o /tmp/libvalidation_interfaces.rlib
       - name: Compile Go output
