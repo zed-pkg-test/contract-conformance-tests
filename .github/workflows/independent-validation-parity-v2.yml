@@ -1,0 +1,98 @@
+name: independent-validation-parity-v2
+
+on:
+  pull_request:
+    paths:
+      - "certification/**"
+      - "scripts/certify-validation-parity.mjs"
+      - ".github/workflows/independent-validation-parity-v2.yml"
+  push:
+    branches: [main]
+    paths:
+      - "certification/**"
+      - "scripts/certify-validation-parity.mjs"
+      - ".github/workflows/independent-validation-parity-v2.yml"
+  workflow_dispatch:
+  schedule:
+    - cron: "23 6 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      producers: ${{ steps.matrix.outputs.producers }}
+      api_docs_ref: ${{ steps.matrix.outputs.api_docs_ref }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - id: matrix
+        shell: bash
+        run: |
+          node --input-type=module <<'EOF' >> "$GITHUB_OUTPUT"
+          import { readFileSync } from "node:fs";
+          const cohort = JSON.parse(readFileSync("certification/cohort.v2.json", "utf8"));
+          const refs = cohort.producers.map(({ repository, ref, pullRequest }) => ({ repository, ref, pullRequest }));
+          if (refs.length < 10) throw new Error(`expected at least 10 producers, got ${refs.length}`);
+          if (refs.some(({ ref }) => !/^[0-9a-f]{40}$/.test(ref))) throw new Error("all producer refs must be immutable commits");
+          console.log(`producers=${JSON.stringify({ include: refs })}`);
+          console.log(`api_docs_ref=${cohort.apiDocsRef}`);
+          EOF
+
+  certify:
+    needs: matrix
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.producers) }}
+    runs-on: ubuntu-latest
+    name: certify ${{ matrix.repository }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: ${{ matrix.repository }}
+          ref: ${{ matrix.ref }}
+          path: producer
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: ORESoftware/api-docs
+          ref: ${{ needs.matrix.outputs.api_docs_ref }}
+          path: producer/.deps/api-docs
+          persist-credentials: false
+      - uses: actions/setup-node@1e60f620b9541dca151540016ba637bae5c2bf7a
+        with:
+          node-version: "22.16.0"
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: "1.25.x"
+          cache: false
+      - name: Reproduce both authorities and final outputs
+        working-directory: producer
+        run: node .deps/api-docs/tools/validation-parity/parity-tool.mjs --check
+      - name: Certify receipt, scopes, route bindings, and privacy boundary
+        run: node scripts/certify-validation-parity.mjs producer "${{ matrix.repository }}" "${{ matrix.ref }}"
+      - name: Compile TypeScript output
+        run: npx --yes --package typescript@5.9.2 tsc -- --noEmit --strict --target ES2022 --module NodeNext --moduleResolution NodeNext producer/generated/final/typescript/isomorphic/types.ts
+      - name: Compile Rust output
+        run: rustc --edition=2021 --crate-type=lib producer/generated/final/rust/isomorphic/src/lib.rs -o /tmp/libvalidation_interfaces.rlib
+      - name: Compile Go output
+        shell: bash
+        run: |
+          tmp="$(mktemp -d)"
+          cp producer/generated/final/golang/isomorphic/types.go "$tmp/types.go"
+          printf 'module external-validation-cert\n\ngo 1.25.0\n' > "$tmp/go.mod"
+          (cd "$tmp" && go test ./...)
+      - name: Compile Gleam output
+        shell: bash
+        run: |
+          tmp="$(mktemp -d)"
+          mkdir -p "$tmp/src"
+          cp producer/generated/final/gleam/isomorphic/src/*.gleam "$tmp/src/"
+          printf 'name = "external_validation_cert"\nversion = "0.1.0"\n\n[dependencies]\ngleam_stdlib = ">= 1.0.0 and < 2.0.0"\n' > "$tmp/gleam.toml"
+          docker run --rm -v "$tmp:/work" -w /work ghcr.io/gleam-lang/gleam:v1.14.0-erlang-alpine sh -lc 'gleam check --target erlang'
