@@ -1,0 +1,60 @@
+name: Production validation cross-repository conformance
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  production-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      RUSTUP_TOOLCHAIN: '1.89.0'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify reviewed sibling head
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: zed-pkg/zed-lib-core
+          ref: bf67d6ea1cdbb90617e556ba35afefb2fcfe36a9
+          path: .deps/zed-lib-core
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: zed-pkg/zed-interfaces
+          ref: 58495c9aaf438b043a5e8bc154d27e9409eabc2d
+          path: .deps/zed-lib-core/.deps/zed-interfaces
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: ORESoftware/typespec-json-schema-validator
+          ref: c745036456dd80408b83217118b8563edb8f6abd
+          path: .deps/zed-lib-core/.deps/zed-interfaces/.deps/typespec-json-schema-validator
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - name: Install locked compiler and actual TypeScript runtime
+        run: |
+          npm ci --prefix .deps/zed-lib-core/.deps/zed-interfaces/.deps/typespec-json-schema-validator
+          npm ci --prefix .deps/zed-lib-core/validation/typescript
+          npm test --prefix .deps/zed-lib-core/validation/typescript
+      - name: Compile real peer authorities and execute independently owned boundary probes
+        run: node --test tests/production-validation.test.mjs
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install 1.89.0 --profile minimal --component rustfmt,clippy
+      - name: Check the actual Rust runtime without copying its implementation
+        working-directory: .deps/zed-lib-core
+        run: |
+          cargo fmt -p zed-validation -p zed-validation-server -- --check
+          cargo test --locked -p zed-validation -p zed-validation-server
+          cargo clippy --locked -p zed-validation -p zed-validation-server --all-targets -- -D warnings
+          cargo run --locked -p zed-validation-server --example production_corpus
+          git diff --exit-code -- Cargo.lock validation/typescript/package-lock.json
