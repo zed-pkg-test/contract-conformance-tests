@@ -1,0 +1,41 @@
+name: Cross-repository Contract IR admission
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  compiler-consumer:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - name: Verify reviewed head
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: zed-pkg/zed-clients
+          ref: 29b8f7cfe956c3d7ec55bd08410aa02dc1810fac
+          path: .deps/zed-clients
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: ORESoftware/typespec-json-schema-validator
+          ref: 22d66b53d2cb5b99f78bbd16c2f235e3defde0f3
+          path: .deps/zed-clients/.deps/typespec-json-schema-validator
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - name: Install locked compiler and native flags2env addon
+        run: npm ci --prefix .deps/zed-clients/.deps/typespec-json-schema-validator
+      - name: Production guard regression tests
+        run: node --test .deps/zed-clients/contract-admission/contract-ir-admission.test.mjs
+      - name: Independent sibling compiler consumer
+        run: node --test tests/contract-ir-consumer.test.mjs
