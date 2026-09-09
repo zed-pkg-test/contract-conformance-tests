@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: zed-pkg/zed-clients
-          ref: c1b467f124aa6f5ebe47fbeec31f69265d2c3fdb
+          ref: a34fabba449e9f3e9bcfa4538988a6a117c79659
           path: .deps/zed-clients
           persist-credentials: false
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -35,7 +35,7 @@ jobs:
           node-version: '22.16.0'
       - name: Verify immutable producer revisions
         run: |
-          test "$(git -C .deps/zed-clients rev-parse HEAD)" = c1b467f124aa6f5ebe47fbeec31f69265d2c3fdb
+          test "$(git -C .deps/zed-clients rev-parse HEAD)" = a34fabba449e9f3e9bcfa4538988a6a117c79659
           test "$(git -C .deps/zed-clients/.deps/typespec-json-schema-validator rev-parse HEAD)" = d60d0d79d83e075077382623ec9e23a401ab601f
           git -C .deps/zed-clients diff --exit-code HEAD
           git -C .deps/zed-clients/.deps/typespec-json-schema-validator diff --exit-code HEAD
