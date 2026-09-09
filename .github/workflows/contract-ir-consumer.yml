@@ -21,21 +21,33 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: zed-pkg/zed-clients
-          ref: 29b8f7cfe956c3d7ec55bd08410aa02dc1810fac
+          ref: c1b467f124aa6f5ebe47fbeec31f69265d2c3fdb
           path: .deps/zed-clients
           persist-credentials: false
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: ORESoftware/typespec-json-schema-validator
-          ref: 22d66b53d2cb5b99f78bbd16c2f235e3defde0f3
+          ref: d60d0d79d83e075077382623ec9e23a401ab601f
           path: .deps/zed-clients/.deps/typespec-json-schema-validator
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.16.0'
+      - name: Verify immutable producer revisions
+        run: |
+          test "$(git -C .deps/zed-clients rev-parse HEAD)" = c1b467f124aa6f5ebe47fbeec31f69265d2c3fdb
+          test "$(git -C .deps/zed-clients/.deps/typespec-json-schema-validator rev-parse HEAD)" = d60d0d79d83e075077382623ec9e23a401ab601f
+          git -C .deps/zed-clients diff --exit-code HEAD
+          git -C .deps/zed-clients/.deps/typespec-json-schema-validator diff --exit-code HEAD
       - name: Install locked compiler and native flags2env addon
         run: npm ci --prefix .deps/zed-clients/.deps/typespec-json-schema-validator
       - name: Production guard regression tests
         run: node --test .deps/zed-clients/contract-admission/contract-ir-admission.test.mjs
       - name: Independent sibling compiler consumer
         run: node --test tests/contract-ir-consumer.test.mjs
+      - name: Independent conditional witness consumer
+        run: node --test tests/conditional-witness-consumer.test.mjs
+      - name: Preserve producer checkouts
+        run: |
+          git -C .deps/zed-clients diff --exit-code HEAD
+          git -C .deps/zed-clients/.deps/typespec-json-schema-validator diff --exit-code HEAD
