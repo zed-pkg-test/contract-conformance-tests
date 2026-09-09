@@ -1,0 +1,57 @@
+name: Runtime evidence wire-contract regression
+on:
+  pull_request:
+    paths: ['validation/runtime-evidence-envelope.test.mjs', '.github/workflows/runtime-evidence-envelope.yml', 'docs/runtime-evidence-envelope.md']
+  push:
+    branches: [main]
+    paths: ['validation/runtime-evidence-envelope.test.mjs', '.github/workflows/runtime-evidence-envelope.yml', 'docs/runtime-evidence-envelope.md']
+permissions:
+  contents: read
+jobs:
+  wire-envelope:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      TJSV_REVISION: afbbaea124bcf9b0831b97153c5896c269848a44
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: ORESoftware/typespec-json-schema-validator
+          ref: ${{ env.TJSV_REVISION }}
+          path: tmp/tjsv
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22.16.0'
+      - name: Verify exact consumer and validator revisions
+        shell: bash
+        env:
+          CONSUMER_REVISION: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          case "$GITHUB_REPOSITORY_OWNER" in *-test) ;; *) exit 1 ;; esac
+          test "$(git rev-parse HEAD)" = "$CONSUMER_REVISION"
+          test "$(git -C tmp/tjsv rev-parse HEAD)" = "$TJSV_REVISION"
+      - name: Install the immutable toolchain
+        working-directory: tmp/tjsv
+        run: npm ci --omit=dev
+      - name: Compare schema and runtime admission on consumer-owned wire cases
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tmp/evidence
+          { node --version; git rev-parse HEAD; git -C tmp/tjsv rev-parse HEAD; } > tmp/evidence/revisions.txt
+          node --test validation/runtime-evidence-envelope.test.mjs | tee tmp/evidence/wire-envelope.tap
+          git diff --exit-code
+          git -C tmp/tjsv diff --exit-code
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wire-envelope-${{ github.event.pull_request.head.sha || github.sha }}
+          path: tmp/evidence/
+          if-no-files-found: error
+          retention-days: 14
