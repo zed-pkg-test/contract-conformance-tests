@@ -48,9 +48,7 @@ test('actual shared contracts remain blocked, deterministic and source-preservin
   const schema = join(source, 'contracts/shared-public/schema.json');
   const before = [digest(tsp), digest(schema)];
   const output = resolve('tmp/legacy-output');
-  // An old positive-looking file must never survive a failed admission.
   mkdirSync(output, { recursive: true });
-  writeFileSync(join(output, 'contract-ir.json'), '{"admissible":true,"sentinel":"stale"}\n');
   const first = run('legacy-first', tsp, schema, join(source, 'corpus'), output, 2);
   stopped(first, 'stopped_for_evaluation');
   assert.equal(first.report.zeroUnexplainedFindings, false);
@@ -58,7 +56,6 @@ test('actual shared contracts remain blocked, deterministic and source-preservin
   for (const rule of ['authored-declaration-missing', 'generated-declaration-missing', 'generated-authored-semantic-mismatch']) {
     assert(first.report.findings.some(finding => finding.ruleId === rule), rule);
   }
-  assert(!readFileSync(join(output, 'contract-ir.json'), 'utf8').includes('sentinel'));
   const second = run('legacy-repeat', tsp, schema, join(source, 'corpus'), output, 2);
   stopped(second, 'stopped_for_evaluation');
   assert.equal(second.report.runId, first.report.runId);
@@ -110,4 +107,32 @@ test('real positive admission is invalidated on semantic drift and compiler fail
   const final = run('probe-final-recovery', tsp, schema, instances, output, 0);
   assert.equal(final.ir.admissible, true);
   assert.equal(final.report.runId, accepted.report.runId);
+});
+
+
+test('unowned Contract IR destinations are preserved and execution fails closed', () => {
+  const source = resolve('tmp/interfaces');
+  const output = resolve('tmp/unowned-output');
+  mkdirSync(output, { recursive: true });
+  const irPath = join(output, 'contract-ir.json');
+  const reportPath = join(output, 'report.json');
+  const original = '{"sentinel":"caller-owned; not a TJSV receipt"}\n';
+  writeFileSync(irPath, original);
+  const result = spawnSync(process.execPath, [tool, 'check',
+    `--typespec=${join(source, 'contracts/shared-public/validation.tsp')}`,
+    `--schema=${join(source, 'contracts/shared-public/schema.json')}`,
+    `--instances=${join(source, 'corpus')}`, `--report=${reportPath}`,
+    `--contract-ir=${irPath}`, `--output-dir=${join(output, 'generated')}`,
+  ], { encoding: 'utf8', timeout: 90000, maxBuffer: 8 * 1024 * 1024 });
+  writeFileSync(join(evidence, 'unowned-refusal.log'), `${result.stdout ?? ''}\n${result.stderr ?? ''}`);
+  assert.ifError(result.error);
+  assert.equal(result.signal, null);
+  assert.equal(result.status, 3);
+  assert.match(`${result.stdout}\n${result.stderr}`, /not validator-owned Contract IR/);
+  assert.equal(readFileSync(irPath, 'utf8'), original);
+  const report = readJson(reportPath);
+  assert.equal(report.status, 'failed');
+  writeFileSync(join(evidence, 'unowned-refusal.report.json'), JSON.stringify(report, null, 2));
+  // Deliberately named destination, not approved Contract IR: caller bytes survive.
+  writeFileSync(join(evidence, 'unowned-refusal.destination.json'), original);
 });
