@@ -1,0 +1,6 @@
+{
+  "schema": "ores.external-shared-package-pins/v1",
+  "hub": { "repository": "ORESoftware/ores-interfaces", "commit": "ac18d10846dd3b9a918c42a81c12b2dc6df79599" },
+  "source": { "repository": "ores-otel/ores-interfaces", "commit": "bcaccb2c0d9b203d268c7bde37552ea9be24547f" },
+  "validator": { "repository": "ORESoftware/typespec-json-schema-validator", "commit": "4473504c4c9d2831d825919f70c03994d8ce01d2" }
+}
