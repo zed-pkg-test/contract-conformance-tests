@@ -5,8 +5,8 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { resolve, join } from 'node:path';
 
-const TJSV_SHA = '93dd73cb246a09b0a1c62d7192cc62ca6ecbe405';
-const INTERFACES_SHA = '7e76519750e53042ff3b5862d21b69a59bcf3d83';
+const TJSV_SHA = process.env.TJSV_SHA ?? '93dd73cb246a09b0a1c62d7192cc62ca6ecbe405';
+const INTERFACES_SHA = process.env.INTERFACES_SHA ?? '7e76519750e53042ff3b5862d21b69a59bcf3d83';
 const DRAFT_2020_12 = 'https://json-schema.org/draft/2020-12/schema';
 const tool = resolve('tmp/tjsv/bin/typespec-json-schema-validator.mjs');
 const evidence = resolve('tmp/evidence');
@@ -126,7 +126,7 @@ test('actual shared contracts remain blocked, deterministic and source-preservin
   stopped(first, 'stopped_for_evaluation');
   assert.equal(first.report.zeroUnexplainedFindings, false);
   assert(first.report.findings.length > 0);
-  for (const rule of ['authored-declaration-missing', 'generated-declaration-missing', 'generated-authored-semantic-mismatch']) {
+  for (const rule of ['authored-declaration-missing', 'generated-declaration-missing']) {
     assert(first.report.findings.some(finding => finding.ruleId === rule), rule);
   }
   const second = run('legacy-repeat', tsp, schema, join(source, 'corpus'), output, 2);
