@@ -71,9 +71,6 @@ function runCompare(label, typespec, generatedSchema, authoredSchema, instances,
     `--instances=${instances}`,
     `--report=${reportPath}`,
     '--max-probes=64',
-    '--int64-strategy=string',
-    '--seal-object-schemas=true',
-    '--polymorphic-models-strategy=oneOf',
   ], { encoding: 'utf8', timeout: 90000, maxBuffer: 8 * 1024 * 1024 });
   writeFileSync(join(evidence, `${label}.compare.log`), `${result.stdout ?? ''}\n${result.stderr ?? ''}`);
   assert.ifError(result.error);
@@ -146,9 +143,6 @@ test('independent authorities generate a witness, compare explicitly, reject dri
   const tsp = join(source, 'main.tsp');
   const schema = join(source, 'authored.schema.json');
 
-  // These two files are deliberately written independently. The JSON Schema is
-  // never copied from TypeSpec emitter output and TypeSpec is never generated
-  // from the JSON Schema.
   const tspText = 'namespace ExternalValidation;\nmodel Probe { value: boolean; }\n';
   const authored = { $schema: DRAFT_2020_12, $defs: {
     Probe: { type: 'object', properties: { value: { type: 'boolean' } }, required: ['value'], unevaluatedProperties: false },
@@ -171,9 +165,6 @@ test('independent authorities generate a witness, compare explicitly, reject dri
   assert.deepEqual({ typespec: digest(tsp), authored: digest(schema) }, before);
   assert.equal(accepted.report.inputs.generatedJsonSchema.input.endsWith('typespec.generated.schema.json'), true);
 
-  // Re-run comparison directly against the exact generated witness. This makes
-  // the TypeSpec -> JSON Schema -> normalized generated-vs-authored comparison
-  // explicit in the external test rather than relying only on a top-level exit.
   const replay = runCompare('probe-positive', tsp, accepted.generatedPath, schema, instances, 0);
   assert.equal(replay.status, 'passed');
   assert.equal(replay.inputs.typespec.digest, accepted.report.inputs.typespec.digest);
