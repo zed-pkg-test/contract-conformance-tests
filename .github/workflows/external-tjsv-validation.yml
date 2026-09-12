@@ -1,53 +1,87 @@
-name: External TJSV validation admission
+name: External TJSV dual-authority admission
+
 on:
   pull_request:
-    paths: ['validation/tjsv-external.test.mjs', '.github/workflows/external-tjsv-validation.yml', 'docs/external-tjsv-validation.md']
+    paths:
+      - 'validation/tjsv-external.test.mjs'
+      - '.github/workflows/external-tjsv-validation.yml'
+      - 'docs/external-tjsv-validation.md'
   push:
     branches: [main]
-    paths: ['validation/tjsv-external.test.mjs', '.github/workflows/external-tjsv-validation.yml', 'docs/external-tjsv-validation.md']
+    paths:
+      - 'validation/tjsv-external.test.mjs'
+      - '.github/workflows/external-tjsv-validation.yml'
+      - 'docs/external-tjsv-validation.md'
   workflow_dispatch:
+
 permissions:
   contents: read
+
+concurrency:
+  group: external-tjsv-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+  TJSV_SHA: 93dd73cb246a09b0a1c62d7192cc62ca6ecbe405
+  INTERFACES_SHA: 7e76519750e53042ff3b5862d21b69a59bcf3d83
+
 jobs:
-  stale-admission-and-recovery:
+  dual-authority-compiler-admission:
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Check out exact test candidate
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
+          ref: ${{ env.EXPECTED_HEAD }}
           persist-credentials: false
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Verify exact test candidate
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+      - name: Check out immutable TJSV authority
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: ORESoftware/typespec-json-schema-validator
-          ref: 4473504c4c9d2831d825919f70c03994d8ce01d2
+          ref: ${{ env.TJSV_SHA }}
           path: tmp/tjsv
           persist-credentials: false
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Check out immutable shared-contract fixture
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           repository: ORESoftware/ores-interfaces
-          ref: 7e76519750e53042ff3b5862d21b69a59bcf3d83
+          ref: ${{ env.INTERFACES_SHA }}
           path: tmp/interfaces
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '22.16.0'
-      - name: Install the immutable validator toolchain
+      - name: Install the immutable validator/compiler/emitter toolchain
         working-directory: tmp/tjsv
         run: npm ci --omit=dev
-      - name: Exercise real compiler admission rejection and recovery
+      - name: Exercise generated witness comparison, rejection, and recovery
         shell: bash
         run: |
           set -euo pipefail
           case "$GITHUB_REPOSITORY_OWNER" in *-test) ;; *) exit 1 ;; esac
+          test "$(git -C tmp/tjsv rev-parse HEAD)" = "$TJSV_SHA"
+          test "$(git -C tmp/interfaces rev-parse HEAD)" = "$INTERFACES_SHA"
           mkdir -p tmp/evidence
-          { node --version; git rev-parse HEAD; git -C tmp/tjsv rev-parse HEAD; git -C tmp/interfaces rev-parse HEAD; } > tmp/evidence/toolchain.txt
+          {
+            printf 'candidate=%s\n' "$(git rev-parse HEAD)"
+            printf 'tjsv=%s\n' "$(git -C tmp/tjsv rev-parse HEAD)"
+            printf 'interfaces=%s\n' "$(git -C tmp/interfaces rev-parse HEAD)"
+            printf 'node=%s\n' "$(node --version)"
+          } > tmp/evidence/toolchain.txt
           node --test validation/tjsv-external.test.mjs | tee tmp/evidence/tests.tap
+          git diff --exit-code
           git -C tmp/interfaces diff --exit-code
           git -C tmp/tjsv diff --exit-code
-      - if: always()
+      - name: Upload diagnostic evidence
+        if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: external-tjsv-${{ github.sha }}
+          name: external-tjsv-${{ env.EXPECTED_HEAD }}
           path: tmp/evidence/
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
