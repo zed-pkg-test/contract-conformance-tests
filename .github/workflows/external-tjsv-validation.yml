@@ -76,6 +76,18 @@ jobs:
           git diff --exit-code
           git -C tmp/interfaces diff --exit-code
           git -C tmp/tjsv diff --exit-code
+      - name: Reject checked-in TypeSpec-generated Schema B witnesses
+        shell: bash
+        run: |
+          set -euo pipefail
+          leaked="$(find . \
+            -path './.git' -prune -o \
+            -path './tmp' -prune -o \
+            -name 'typespec.generated.schema.json' -print -quit)"
+          if [[ -n "$leaked" ]]; then
+            echo "generated Schema B must remain comparison evidence, not an authored authority: $leaked" >&2
+            exit 1
+          fi
       - name: Upload diagnostic evidence
         if: always()
         continue-on-error: true
