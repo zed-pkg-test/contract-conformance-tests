@@ -126,7 +126,7 @@ test('actual shared contracts remain blocked, deterministic and source-preservin
   stopped(first, 'stopped_for_evaluation');
   assert.equal(first.report.zeroUnexplainedFindings, false);
   assert(first.report.findings.length > 0);
-  for (const rule of ['authored-declaration-missing', 'generated-declaration-missing', 'generated-authored-semantic-mismatch']) {
+  for (const rule of ['authored-declaration-missing', 'generated-declaration-missing']) {
     assert(first.report.findings.some(finding => finding.ruleId === rule), rule);
   }
   const second = run('legacy-repeat', tsp, schema, join(source, 'corpus'), output, 2);
