@@ -5,8 +5,8 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { resolve, join } from 'node:path';
 
-const TJSV_SHA = '93dd73cb246a09b0a1c62d7192cc62ca6ecbe405';
-const INTERFACES_SHA = '7e76519750e53042ff3b5862d21b69a59bcf3d83';
+const TJSV_SHA = process.env.TJSV_SHA ?? '93dd73cb246a09b0a1c62d7192cc62ca6ecbe405';
+const INTERFACES_SHA = process.env.INTERFACES_SHA ?? '7e76519750e53042ff3b5862d21b69a59bcf3d83';
 const DRAFT_2020_12 = 'https://json-schema.org/draft/2020-12/schema';
 const tool = resolve('tmp/tjsv/bin/typespec-json-schema-validator.mjs');
 const evidence = resolve('tmp/evidence');
