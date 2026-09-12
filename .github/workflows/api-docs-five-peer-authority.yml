@@ -21,7 +21,7 @@ concurrency:
 
 env:
   EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
-  API_DOCS_SHA: 6e62c66c4699e09e460725032c939f4d2d12ba07
+  API_DOCS_SHA: 65f367594b93c16fb790f3808f46fef853f48938
   TJSV_SHA: 93dd73cb246a09b0a1c62d7192cc62ca6ecbe405
 
 jobs:
