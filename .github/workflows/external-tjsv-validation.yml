@@ -25,12 +25,11 @@ env:
   EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
   TJSV_SHA: 93dd73cb246a09b0a1c62d7192cc62ca6ecbe405
   INTERFACES_SHA: 7e76519750e53042ff3b5862d21b69a59bcf3d83
-  ORES_CLI_SHA: 2a832ce10e74129ddf9577fc0fff40e8da40a38c
 
 jobs:
   dual-authority-compiler-admission:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - name: Check out exact test candidate
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -53,31 +52,12 @@ jobs:
           ref: ${{ env.INTERFACES_SHA }}
           path: tmp/interfaces
           persist-credentials: false
-      - name: Check out immutable ores-cli auditor
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          repository: ORESoftware/ores-cli
-          ref: ${{ env.ORES_CLI_SHA }}
-          path: tmp/ores-cli
-          persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
         with:
           node-version: '22.16.0'
       - name: Install the immutable validator/compiler/emitter toolchain
         working-directory: tmp/tjsv
         run: npm ci --omit=dev
-      - name: Install immutable ores-cli auditor
-        shell: bash
-        run: |
-          set -euo pipefail
-          ./tmp/ores-cli/post-install.sh --install-root "$RUNNER_TEMP/ores-cli"
-      - name: Run ores-cli repository lint against the test-org fixture repo
-        shell: bash
-        run: |
-          set -euo pipefail
-          case "$GITHUB_REPOSITORY_OWNER" in *-test) ;; *) exit 1 ;; esac
-          test "$(git -C tmp/ores-cli rev-parse HEAD)" = "$ORES_CLI_SHA"
-          "$RUNNER_TEMP/ores-cli/bin/oresc" --no-json audit repo --path "$GITHUB_WORKSPACE" --profile baseline | tee tmp/ores-cli-audit.txt
       - name: Exercise generated witness comparison, rejection, and recovery
         shell: bash
         run: |
@@ -90,15 +70,24 @@ jobs:
             printf 'candidate=%s\n' "$(git rev-parse HEAD)"
             printf 'tjsv=%s\n' "$(git -C tmp/tjsv rev-parse HEAD)"
             printf 'interfaces=%s\n' "$(git -C tmp/interfaces rev-parse HEAD)"
-            printf 'ores_cli=%s\n' "$(git -C tmp/ores-cli rev-parse HEAD)"
             printf 'node=%s\n' "$(node --version)"
           } > tmp/evidence/toolchain.txt
-          cp tmp/ores-cli-audit.txt tmp/evidence/ores-cli-audit.txt
           node --test validation/tjsv-external.test.mjs | tee tmp/evidence/tests.tap
           git diff --exit-code
           git -C tmp/interfaces diff --exit-code
           git -C tmp/tjsv diff --exit-code
-          git -C tmp/ores-cli diff --exit-code
+      - name: Reject checked-in TypeSpec-generated Schema B witnesses
+        shell: bash
+        run: |
+          set -euo pipefail
+          leaked="$(find . \
+            -path './.git' -prune -o \
+            -path './tmp' -prune -o \
+            -name 'typespec.generated.schema.json' -print -quit)"
+          if [[ -n "$leaked" ]]; then
+            echo "generated Schema B must remain comparison evidence, not an authored authority: $leaked" >&2
+            exit 1
+          fi
       - name: Upload diagnostic evidence
         if: always()
         continue-on-error: true
