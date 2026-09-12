@@ -1,0 +1,86 @@
+name: API Docs five-peer TJSV canary
+
+on:
+  pull_request:
+    paths:
+      - 'tests/api-docs-five-peer-authority.test.mjs'
+      - '.github/workflows/api-docs-five-peer-authority.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'tests/api-docs-five-peer-authority.test.mjs'
+      - '.github/workflows/api-docs-five-peer-authority.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: api-docs-five-peer-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+  API_DOCS_SHA: 6e62c66c4699e09e460725032c939f4d2d12ba07
+  TJSV_SHA: 93dd73cb246a09b0a1c62d7192cc62ca6ecbe405
+
+jobs:
+  five-peer-authorities:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out exact test candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ env.EXPECTED_HEAD }}
+          persist-credentials: false
+          show-progress: false
+      - name: Require exact test-org candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "$GITHUB_REPOSITORY_OWNER" in *-test) ;; *) exit 1 ;; esac
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+      - name: Check out exact API Docs candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ORESoftware/api-docs
+          ref: ${{ env.API_DOCS_SHA }}
+          path: tmp/api-docs
+          persist-credentials: false
+          show-progress: false
+          fetch-depth: 1
+      - name: Check out immutable TJSV
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ORESoftware/typespec-json-schema-validator
+          ref: ${{ env.TJSV_SHA }}
+          path: tmp/tjsv
+          persist-credentials: false
+          show-progress: false
+          fetch-depth: 1
+      - name: Install Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: '22.23.1'
+          package-manager-cache: false
+      - name: Install locked TJSV compiler/emitter closure
+        run: npm ci --prefix tmp/tjsv --ignore-scripts --no-audit --no-fund
+      - name: Build only pinned flags-2-env native dependency
+        working-directory: tmp/tjsv
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm rebuild @oresoftware/f2e --ignore-scripts=false --no-audit --no-fund
+          test -s node_modules/@oresoftware/f2e/clients/nodejs/build/Release/flags2env.node
+      - name: Compile all five TypeSpec lanes, compare Schema B with authored Schema A, and reject drift
+        run: node --test tests/api-docs-five-peer-authority.test.mjs
+      - name: Prove both upstream source trees remain unchanged
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C tmp/api-docs rev-parse HEAD)" = "$API_DOCS_SHA"
+          test "$(git -C tmp/tjsv rev-parse HEAD)" = "$TJSV_SHA"
+          git -C tmp/api-docs diff --exit-code
+          git -C tmp/tjsv diff --exit-code
+          git diff --exit-code -- tests/api-docs-five-peer-authority.test.mjs .github/workflows/api-docs-five-peer-authority.yml
