@@ -1,0 +1,79 @@
+name: ores-cli Zed manifest exact-source certification
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ores-cli-zpkg-kind-exact-source.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ores-cli-zpkg-kind-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact certification head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify certification identity
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Validate workflow syntax
+        uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+        with:
+          args: .github/workflows/ores-cli-zpkg-kind-exact-source.yml
+
+      - name: Check out exact ores-cli candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ORESoftware/ores-cli
+          ref: d04bc6cb6d08884f01e8437621eb285eaf9685c7
+          path: product
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Bind exact product source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C product rev-parse HEAD)" = 'd04bc6cb6d08884f01e8437621eb285eaf9685c7'
+          test "$(git -C product hash-object src/audit/zpkg_manifest.rs)" = 'f5375f28b9d43e139637aeccbad717265a06cf31'
+          grep -Fq 'mod zpkg_manifest;' product/src/audit/mod.rs
+          grep -Fq 'augment_zpkg_manifest_audit' product/src/audit/mod.rs
+
+      - name: Install pinned Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: '1.95.0'
+          components: rustfmt, clippy
+
+      - name: Check focused formatting
+        run: rustfmt +1.95.0 --check product/src/audit/zpkg_manifest.rs
+
+      - name: Compile and run Zed-manifest regressions
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/ores-cli-zpkg-kind-target
+        run: cargo +1.95.0 test --manifest-path product/Cargo.toml --locked --lib zpkg_manifest -- --nocapture
+
+      - name: Deny warnings in the product library
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/ores-cli-zpkg-kind-target
+        run: cargo +1.95.0 clippy --manifest-path product/Cargo.toml --locked --lib --all-features -- -D warnings
+
+      - name: Prove product checkout remained immutable
+        run: |
+          set -euo pipefail
+          git -C product diff --exit-code -- .
+          git diff --check
