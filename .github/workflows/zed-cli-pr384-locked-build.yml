@@ -1,0 +1,96 @@
+name: zed-cli PR 384 locked-build certification
+
+on:
+  pull_request:
+    paths:
+      - 'certification/zed-cli-pr384/**'
+      - '.github/workflows/zed-cli-pr384-locked-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zed-cli-pr384-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  certify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - name: Check out certification repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Check out exact zed-cli candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: zed-pkg/zed-cli
+          ref: e97a0cba1ffe6770bbd50b4df8590f1864cd53bc
+          path: product
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify immutable candidate and source pin
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C product rev-parse HEAD)" = 'e97a0cba1ffe6770bbd50b4df8590f1864cd53bc'
+          grep -Fq '"pullRequest": 384' certification/zed-cli-pr384/source-pins.json
+          grep -Fq '"sha": "e97a0cba1ffe6770bbd50b4df8590f1864cd53bc"' certification/zed-cli-pr384/source-pins.json
+          grep -Fq '"rust": "1.98.1"' certification/zed-cli-pr384/source-pins.json
+          grep -Fq 'channel = "1.98.1"' product/rust-toolchain.toml
+          test ! -e product/.zpkg.lock
+          git diff --check
+          git -C product diff --check
+
+      - name: Install candidate Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: '1.98.1'
+          components: rustfmt, clippy
+
+      - name: Format exact candidate
+        working-directory: product
+        run: cargo +1.98.1 fmt --all -- --check
+
+      - name: Build every release binary with the Cargo lockfile
+        working-directory: product
+        run: cargo +1.98.1 build --locked --release --bins
+
+      - name: Run package TOML contract
+        working-directory: product
+        run: cargo +1.98.1 test --locked --test toml_contract -- --nocapture
+
+      - name: Validate package dependency graph
+        if: runner.os == 'Linux'
+        working-directory: product
+        shell: bash
+        run: bash scripts/validate-zed-package-graph.sh
+
+      - name: Exercise built CLIs and manifest-only validation
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./target/release/zed --version
+          ./target/release/zed validate --manifest .zpkg.toml --json >/dev/null
+          ./target/release/zed-gitops validate --help >/dev/null
+          ./target/release/zed-git-install --help >/dev/null
+
+      - name: Prove candidate checkout remained immutable
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 'e97a0cba1ffe6770bbd50b4df8590f1864cd53bc'
+          test -z "$(git status --porcelain --untracked-files=no)"
+          git diff --check
