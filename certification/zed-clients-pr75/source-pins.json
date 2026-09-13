@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "product": {
+    "repository": "zed-pkg/zed-clients",
+    "pullRequest": 75,
+    "sha": "ce3101b933607283975ddc94080b5557aee84134",
+    "crate": "clients/rust-async"
+  },
+  "toolchain": {"rust": "1.98.1"},
+  "behavior": [
+    "timeout-before-response-headers",
+    "bounded-response-body",
+    "api-error-classification",
+    "caller-cancellable-inflight-future",
+    "no-new-blocking-reqwest"
+  ]
+}
