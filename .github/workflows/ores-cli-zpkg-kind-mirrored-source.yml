@@ -45,8 +45,10 @@ jobs:
           src='certification/ores-cli-zpkg-kind-pr281/src/audit/zpkg_manifest.rs'
           grep -Fq 'zpkg-package-kind-noncanonical' "$src"
           grep -Fq '`zed validate` remains the canonical executable validator' "$src"
+          grep -Fq '.get("package")' "$src"
           grep -Fq 'package.contains_key("kind")' "$src"
-          ! grep -Eq 'schema|allowed_fields|allowedFields' "$src"
+          test "$(grep -c 'contains_key' "$src")" -eq 1
+          ! grep -Eq 'allowed_fields|allowedFields|enum[[:space:]]+Package|struct[[:space:]]+Package' "$src"
 
       - name: Install pinned Rust
         uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
