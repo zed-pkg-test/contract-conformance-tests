@@ -3,7 +3,7 @@
   "product": {
     "repository": "zed-pkg/zed-cli",
     "pullRequest": 384,
-    "sha": "344d432a6f94d4b1cfa02228ec36623c7484177a",
+    "sha": "70e02eb7dc9a423d4465fd421ce5b150b16451b6",
     "baseSha": "a80dad717dbff82ef6fff237e13ccf3820f074c4"
   },
   "toolchain": {
