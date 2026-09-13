@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "product": {
+    "repository": "ORESoftware/ores-cli",
+    "pullRequest": 281,
+    "sha": "d04bc6cb6d08884f01e8437621eb285eaf9685c7",
+    "zpkgManifestBlob": "f5375f28b9d43e139637aeccbad717265a06cf31"
+  },
+  "scope": {
+    "zedValidateRemainsExecutableAuthority": true,
+    "rejectsPackageKindOnly": true,
+    "reimplementsZedSchema": false
+  },
+  "contractAuthorityModel": {
+    "typespec": "independently-authored-first-class",
+    "jsonSchemaDraft202012": "independently-authored-first-class",
+    "generatedSchemaB": "comparison-evidence-only",
+    "precedence": "none"
+  }
+}
