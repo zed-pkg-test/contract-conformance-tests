@@ -31,10 +31,10 @@ jobs:
         run: |
           set -euo pipefail
           root='certification/ores-cli-zpkg-kind-pr281'
-          test "$(git hash-object "$root/src/audit/zpkg_manifest.rs")" = 'f5375f28b9d43e139637aeccbad717265a06cf31'
+          test "$(git hash-object "$root/src/audit/zpkg_manifest.rs")" = '9602c10c06b23d767ea11fea339bf129b462adcc'
           grep -Fq '"pullRequest": 281' "$root/source-pins.json"
-          grep -Fq '"sha": "d04bc6cb6d08884f01e8437621eb285eaf9685c7"' "$root/source-pins.json"
-          grep -Fq '"zpkgManifestBlob": "f5375f28b9d43e139637aeccbad717265a06cf31"' "$root/source-pins.json"
+          grep -Fq '"sha": "07aa63c95931bb32afd82e9c7c92550bc5e00286"' "$root/source-pins.json"
+          grep -Fq '"zpkgManifestBlob": "9602c10c06b23d767ea11fea339bf129b462adcc"' "$root/source-pins.json"
           grep -Fq 'mod zpkg_manifest;' "$root/src/audit/mod.rs"
           git diff --check
 
@@ -74,5 +74,5 @@ jobs:
       - name: Prove mirrored product source remained immutable
         run: |
           set -euo pipefail
-          test "$(git hash-object certification/ores-cli-zpkg-kind-pr281/src/audit/zpkg_manifest.rs)" = 'f5375f28b9d43e139637aeccbad717265a06cf31'
+          test "$(git hash-object certification/ores-cli-zpkg-kind-pr281/src/audit/zpkg_manifest.rs)" = '9602c10c06b23d767ea11fea339bf129b462adcc'
           git diff --check
