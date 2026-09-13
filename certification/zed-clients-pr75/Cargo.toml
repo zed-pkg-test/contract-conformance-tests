@@ -1,0 +1,9 @@
+[package]
+name = "zed-client-async-cert"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+zed-client-async = { git = "https://github.com/zed-pkg/zed-clients.git", rev = "ce3101b933607283975ddc94080b5557aee84134" }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "sync", "time"] }
