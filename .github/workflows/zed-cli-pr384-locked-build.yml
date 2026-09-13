@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: zed-pkg/zed-cli
-          ref: 611da9528940267235ed28391c3b05443380902d
+          ref: e97a0cba1ffe6770bbd50b4df8590f1864cd53bc
           path: product
           persist-credentials: false
           fetch-depth: 1
@@ -43,11 +43,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C product rev-parse HEAD)" = '611da9528940267235ed28391c3b05443380902d'
+          test "$(git -C product rev-parse HEAD)" = 'e97a0cba1ffe6770bbd50b4df8590f1864cd53bc'
           grep -Fq '"pullRequest": 384' certification/zed-cli-pr384/source-pins.json
-          grep -Fq '"sha": "611da9528940267235ed28391c3b05443380902d"' certification/zed-cli-pr384/source-pins.json
+          grep -Fq '"sha": "e97a0cba1ffe6770bbd50b4df8590f1864cd53bc"' certification/zed-cli-pr384/source-pins.json
           grep -Fq '"rust": "1.98.1"' certification/zed-cli-pr384/source-pins.json
           grep -Fq 'channel = "1.98.1"' product/rust-toolchain.toml
+          test ! -e product/.zpkg.lock
           git diff --check
           git -C product diff --check
 
@@ -61,7 +62,7 @@ jobs:
         working-directory: product
         run: cargo +1.98.1 fmt --all -- --check
 
-      - name: Build every release binary with the lockfile
+      - name: Build every release binary with the Cargo lockfile
         working-directory: product
         run: cargo +1.98.1 build --locked --release --bins
 
@@ -75,13 +76,13 @@ jobs:
         shell: bash
         run: bash scripts/validate-zed-package-graph.sh
 
-      - name: Exercise the built CLI against its own package manifest
+      - name: Exercise built CLIs and manifest-only validation
         working-directory: product
         shell: bash
         run: |
           set -euo pipefail
           ./target/release/zed --version
-          ./target/release/zed validate --manifest .zpkg.toml --lock .zpkg.lock --json >/dev/null
+          ./target/release/zed validate --manifest .zpkg.toml --json >/dev/null
           ./target/release/zed-gitops validate --help >/dev/null
           ./target/release/zed-git-install --help >/dev/null
 
@@ -90,6 +91,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = '611da9528940267235ed28391c3b05443380902d'
+          test "$(git rev-parse HEAD)" = 'e97a0cba1ffe6770bbd50b4df8590f1864cd53bc'
           test -z "$(git status --porcelain --untracked-files=no)"
           git diff --check
