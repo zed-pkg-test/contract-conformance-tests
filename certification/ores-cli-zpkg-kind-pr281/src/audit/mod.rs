@@ -8,5 +8,3 @@ pub struct RepositoryAuditOptions {
 }
 
 mod zpkg_manifest;
-
-pub use zpkg_manifest::augment_zpkg_manifest_audit;
