@@ -34,7 +34,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: zed-pkg/zed-cli
-          ref: 344d432a6f94d4b1cfa02228ec36623c7484177a
+          ref: 70e02eb7dc9a423d4465fd421ce5b150b16451b6
           path: product
           persist-credentials: false
           fetch-depth: 1
@@ -43,9 +43,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C product rev-parse HEAD)" = '344d432a6f94d4b1cfa02228ec36623c7484177a'
+          test "$(git -C product rev-parse HEAD)" = '70e02eb7dc9a423d4465fd421ce5b150b16451b6'
           grep -Fq '"pullRequest": 384' certification/zed-cli-pr384/source-pins.json
-          grep -Fq '"sha": "344d432a6f94d4b1cfa02228ec36623c7484177a"' certification/zed-cli-pr384/source-pins.json
+          grep -Fq '"sha": "70e02eb7dc9a423d4465fd421ce5b150b16451b6"' certification/zed-cli-pr384/source-pins.json
           grep -Fq '"rust": "1.98.1"' certification/zed-cli-pr384/source-pins.json
           grep -Fq 'channel = "1.98.1"' product/rust-toolchain.toml
           git diff --check
@@ -90,6 +90,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = '344d432a6f94d4b1cfa02228ec36623c7484177a'
+          test "$(git rev-parse HEAD)" = '70e02eb7dc9a423d4465fd421ce5b150b16451b6'
           test -z "$(git status --porcelain --untracked-files=no)"
           git diff --check
