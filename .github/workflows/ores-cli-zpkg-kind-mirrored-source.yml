@@ -31,11 +31,13 @@ jobs:
         run: |
           set -euo pipefail
           root='certification/ores-cli-zpkg-kind-pr281'
-          test "$(git hash-object "$root/src/audit/zpkg_manifest.rs")" = '9602c10c06b23d767ea11fea339bf129b462adcc'
+          test "$(git hash-object "$root/src/audit/zpkg_manifest.rs")" = 'e78a7636df785fbf4746436325bbbc8b38d46184'
           grep -Fq '"pullRequest": 281' "$root/source-pins.json"
-          grep -Fq '"sha": "07aa63c95931bb32afd82e9c7c92550bc5e00286"' "$root/source-pins.json"
-          grep -Fq '"zpkgManifestBlob": "9602c10c06b23d767ea11fea339bf129b462adcc"' "$root/source-pins.json"
+          grep -Fq '"sha": "f568a1e7d94066c2bd164a4bb135c7b55d10e2f2"' "$root/source-pins.json"
+          grep -Fq '"zpkgManifestBlob": "e78a7636df785fbf4746436325bbbc8b38d46184"' "$root/source-pins.json"
           grep -Fq 'mod zpkg_manifest;' "$root/src/audit/mod.rs"
+          grep -Fq 'toml = "0.8"' "$root/Cargo.toml"
+          grep -Fq 'edition = "2024"' "$root/Cargo.toml"
           git diff --check
 
       - name: Keep lint narrow and non-authoritative
@@ -57,7 +59,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Format exact product module
-        run: rustfmt +1.95.0 --edition 2021 --check certification/ores-cli-zpkg-kind-pr281/src/audit/zpkg_manifest.rs
+        run: rustfmt +1.95.0 --edition 2024 --check certification/ores-cli-zpkg-kind-pr281/src/audit/zpkg_manifest.rs
 
       - name: Compile and execute debug regressions
         run: |
@@ -74,5 +76,5 @@ jobs:
       - name: Prove mirrored product source remained immutable
         run: |
           set -euo pipefail
-          test "$(git hash-object certification/ores-cli-zpkg-kind-pr281/src/audit/zpkg_manifest.rs)" = '9602c10c06b23d767ea11fea339bf129b462adcc'
+          test "$(git hash-object certification/ores-cli-zpkg-kind-pr281/src/audit/zpkg_manifest.rs)" = 'e78a7636df785fbf4746436325bbbc8b38d46184'
           git diff --check
