@@ -127,12 +127,10 @@ version = "0.1.0"
 kind = "pub-lib-core"
 "#,
         );
-        assert!(
-            report
-                .findings
-                .iter()
-                .any(|finding| finding.code == "zpkg-package-kind-noncanonical")
-        );
+        assert!(report
+            .findings
+            .iter()
+            .any(|finding| finding.code == "zpkg-package-kind-noncanonical"));
     }
 
     #[test]
@@ -149,11 +147,9 @@ dir = "src/rust"
 adapter = "rust"
 "#,
         );
-        assert!(
-            !report
-                .findings
-                .iter()
-                .any(|finding| finding.code == "zpkg-package-kind-noncanonical")
-        );
+        assert!(!report
+            .findings
+            .iter()
+            .any(|finding| finding.code == "zpkg-package-kind-noncanonical"));
     }
 }
