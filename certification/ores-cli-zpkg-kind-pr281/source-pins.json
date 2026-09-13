@@ -3,8 +3,8 @@
   "product": {
     "repository": "ORESoftware/ores-cli",
     "pullRequest": 281,
-    "sha": "07aa63c95931bb32afd82e9c7c92550bc5e00286",
-    "zpkgManifestBlob": "9602c10c06b23d767ea11fea339bf129b462adcc"
+    "sha": "f568a1e7d94066c2bd164a4bb135c7b55d10e2f2",
+    "zpkgManifestBlob": "e78a7636df785fbf4746436325bbbc8b38d46184"
   },
   "scope": {
     "zedValidateRemainsExecutableAuthority": true,
