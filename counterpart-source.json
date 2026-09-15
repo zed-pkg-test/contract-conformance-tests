@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "status": "active",
+  "testOwner": {"login": "zed-pkg-test", "id": 309134292, "type": "Organization"},
+  "productionOwner": {"login": "zed-pkg", "id": 308416455, "type": "Organization"},
+  "governanceRepository": "zed-pkg-test/.github",
+  "governancePath": "architecture/test-counterpart.json",
+  "scope": {"kind": "organization-current-tips", "includeArchived": false},
+  "policy": {"suffixInferenceAuthoritative": false, "bindExactDefaultBranchSha": true, "privateVisibilityFailsClosed": true}
+}
