@@ -1,0 +1,106 @@
+name: ores-http-clients certification
+
+on:
+  push:
+    branches: [ores-http-clients-certification]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source under certification
+        uses: actions/checkout@v4
+        with:
+          repository: ORESoftware/ores-http-clients
+          ref: audit/harden-representations
+          path: source
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: source/src/ts/package.json
+      - name: Install TypeScript dependencies
+        working-directory: source/src/ts
+        run: npm install --no-audit --no-fund
+      - name: TypeScript build and tests
+        working-directory: source/src/ts
+        run: npm test
+
+  dart:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source under certification
+        uses: actions/checkout@v4
+        with:
+          repository: ORESoftware/ores-http-clients
+          ref: audit/harden-representations
+          path: source
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Resolve Dart dependencies
+        working-directory: source/src/dart
+        run: dart pub get
+      - name: Analyze Dart
+        working-directory: source/src/dart
+        run: dart analyze --fatal-infos
+      - name: Test Dart
+        working-directory: source/src/dart
+        run: dart test
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source under certification
+        uses: actions/checkout@v4
+        with:
+          repository: ORESoftware/ores-http-clients
+          ref: audit/harden-representations
+          path: source
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt,clippy
+      - name: Rust format
+        working-directory: source/src/rust
+        run: cargo fmt --all -- --check
+      - name: Rust default tests
+        working-directory: source/src/rust
+        run: cargo test --all-targets
+      - name: Rust rxrust feature tests
+        working-directory: source/src/rust
+        run: cargo test --all-targets --features rxrust-support
+      - name: Rust clippy
+        working-directory: source/src/rust
+        run: cargo clippy --all-targets --features rxrust-support -- -D warnings
+
+  contract-shape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source under certification
+        uses: actions/checkout@v4
+        with:
+          repository: ORESoftware/ores-http-clients
+          ref: audit/harden-representations
+          path: source
+      - name: Assert polyglot transport and reactive surfaces exist
+        run: |
+          set -euo pipefail
+          test -f source/src/ts/src/websockets.ts
+          test -f source/src/ts/src/scheduler.ts
+          test -f source/src/ts/src/streaming.ts
+          test -f source/src/dart/lib/src/websocket_hub.dart
+          test -f source/src/dart/lib/src/scheduler_streaming.dart
+          test -f source/src/rust/src/websocket_hub.rs
+          test -f source/src/rust/src/scheduling.rs
+          test -f source/src/rust/src/reactive.rs
+          grep -q 'supabase' source/src/ts/src/websockets.ts
+          grep -q 'supabase' source/src/dart/lib/src/websocket_hub.dart
+          grep -q 'supabase' source/src/rust/src/websocket_hub.rs
+          grep -q 'RequestScheduler' source/src/ts/src/scheduler.ts
+          grep -q 'RequestScheduler' source/src/dart/lib/src/scheduler_streaming.dart
+          grep -q 'RequestScheduler' source/src/rust/src/scheduling.rs
