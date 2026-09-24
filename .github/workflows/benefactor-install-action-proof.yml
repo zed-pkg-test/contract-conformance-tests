@@ -21,4 +21,5 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          cargo audit --version | grep -F 'cargo-audit 0.22.2'
+          cargo-audit --version | grep -F '0.22.2'
+          cargo audit --version | grep -F '0.22.2'
