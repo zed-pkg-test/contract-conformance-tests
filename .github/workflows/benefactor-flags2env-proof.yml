@@ -1,0 +1,21 @@
+name: Benefactor flags2env cross-org proof
+
+on:
+  push:
+    branches:
+      - proof/benefactor-flags2env-e07284f
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compliance:
+    uses: ORESoftware/flags-2-env/.github/workflows/reusable-consumer-compliance.yml@e07284f783b81e7ed49425f817dc3e12845ff860
+    with:
+      tooling_ref: e07284f783b81e7ed49425f817dc3e12845ff860
+      parser_ref: 9483b92c1fb259f598858fdd2bef66417d87fb2c
+      kind: mcp
+      command_name: benefactor-proof-mcp
+      contract_path: fixtures/benefactor-flags2env-proof/.cli-flags.toml
+      runtime_smoke_script: fixtures/benefactor-flags2env-proof/smoke-mcp.sh
