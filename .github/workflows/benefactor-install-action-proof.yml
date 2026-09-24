@@ -1,0 +1,24 @@
+name: Benefactor taiki install-action cross-org proof
+
+on:
+  push:
+    branches:
+      - proof/benefactor-install-action-2.87.16
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-audit-install:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: taiki-e/install-action@9114bf4d891761788c546334fd37538eae1bf8b3 # v2.87.16
+        with:
+          tool: cargo-audit@0.22.2
+      - name: Assert exact cargo-audit version
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo audit --version | grep -F 'cargo-audit 0.22.2'
