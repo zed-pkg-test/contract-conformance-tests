@@ -1,0 +1,20 @@
+[help]
+columns = ["options", "env", "type", "description"]
+
+[parse]
+allow_unknown = false
+
+[env]
+load = false
+ignore = ["SECRET_TOKEN"]
+
+[flags.root]
+env = "PROOF_ROOT"
+type = "string"
+help = "Temporary root used by the cross-org MCP compliance proof."
+
+[flags.log-filter]
+env = "RUST_LOG"
+type = "string"
+default = "warn"
+help = "Non-secret diagnostic filter for the proof process."
