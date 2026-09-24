@@ -13,7 +13,7 @@ jobs:
   compliance:
     uses: ORESoftware/flags-2-env/.github/workflows/reusable-consumer-compliance.yml@e07284f783b81e7ed49425f817dc3e12845ff860
     with:
-      tooling_ref: e07284f783b81e7ed49425f817dc3e12845ff860
+      tooling_ref: 9483b92c1fb259f598858fdd2bef66417d87fb2c
       parser_ref: 9483b92c1fb259f598858fdd2bef66417d87fb2c
       kind: mcp
       command_name: benefactor-proof-mcp
