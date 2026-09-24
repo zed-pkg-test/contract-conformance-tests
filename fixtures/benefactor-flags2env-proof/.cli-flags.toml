@@ -1,5 +1,5 @@
 [help]
-columns = ["options", "env", "type", "description"]
+columns = ["options", "env", "type", "default", "description"]
 
 [parse]
 allow_unknown = false
