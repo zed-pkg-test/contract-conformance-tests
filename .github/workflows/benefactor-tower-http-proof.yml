@@ -1,0 +1,26 @@
+name: Benefactor tower-http cross-org proof
+
+on:
+  push:
+    branches:
+      - proof/benefactor-tower-http-0.7.1
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cargo-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: "1.88.0"
+      - name: Check exact Benefactor feature set
+        run: cargo check --manifest-path fixtures/benefactor-tower-http-proof/Cargo.toml
+      - name: Confirm resolved tower-http version
+        run: cargo tree --manifest-path fixtures/benefactor-tower-http-proof/Cargo.toml -i tower-http | grep -F 'tower-http v0.7.1'
