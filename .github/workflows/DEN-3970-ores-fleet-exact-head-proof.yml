@@ -1,0 +1,183 @@
+name: DEN-3970 ores fleet exact-head proof
+
+on:
+  pull_request:
+  push:
+    branches:
+      - DEN-3970-ores-fleet-exact-head-proof-20260924
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api-template:
+    name: api-template ${{ matrix.label }}
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: pr-32
+            sha: fd76c082633b8181823eeb120f7937f84ce797b7
+          - label: pr-29
+            sha: 6a8e2c25e33a717cc297d860642cf15e70ae475b
+          - label: pr-21
+            sha: ef319417da0634a17a88e46cd0a568a2976bbd5f
+    steps:
+      - name: Check out exact ORESoftware candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/ORESoftware/ores-api-server.template.rs.git target
+          git -C target checkout --detach "${{ matrix.sha }}"
+          test "$(git -C target rev-parse HEAD)" = "${{ matrix.sha }}"
+      - name: Repository hygiene and JSON policy
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check "$(git merge-base origin/main HEAD)"..HEAD
+          jq empty .ores-config-authorities.json config/ores-middleware-stack.json contracts/rpc.route-map.json
+      - name: Install Rust 1.88
+        run: rustup toolchain install 1.88.0 --profile minimal --component rustfmt --component clippy
+      - name: Resolve Zed dependency graph
+        working-directory: target
+        run: bash scripts/install-zed-deps.sh
+      - name: Rust metadata and formatting
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo +1.88.0 metadata --no-deps --format-version 1 >/dev/null
+          cargo +1.88.0 fmt --all -- --check
+      - name: Server layout conformance
+        working-directory: target
+        run: cargo +1.88.0 run --quiet --bin check-server-layout
+      - name: Embedded shared contracts
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f template-shared/Cargo.toml; then
+            cargo +1.88.0 test --manifest-path template-shared/Cargo.toml
+          fi
+      - name: Lock config policy
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc +1.88.0 --edition=2021 scripts/check_lock_config.rs -o /tmp/check-lock-config
+          /tmp/check-lock-config
+      - name: Runtime config conformance
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -f conformance/check-runtime-configs.py; then
+            python3 conformance/check-runtime-configs.py
+          fi
+      - name: Rust test and clippy
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo +1.88.0 test --all-targets
+          cargo +1.88.0 test --doc
+          cargo +1.88.0 clippy --all-targets -- -D warnings
+
+  archived-delete-data:
+    name: archived-delete-data pr-12
+    runs-on: ubuntu-24.04
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: postgres
+      ORES_LOCKS_AND_LEASES_SQL_REV: 237f3ef8e4df1a354152fb0c56a4eb65e06ff378
+    steps:
+      - name: Check out exact ORESoftware candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none https://github.com/ORESoftware/ores-archived-and-delete-data.git target
+          git -C target checkout --detach 602ecfd2b12d9dc2abd86b9a8e3c152d28ed2cf2
+          test "$(git -C target rev-parse HEAD)" = "602ecfd2b12d9dc2abd86b9a8e3c152d28ed2cf2"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22.16.0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: '1.25.0'
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87
+        with:
+          toolchain: 1.88.0
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124
+        with:
+          otp-version: '27.3'
+          gleam-version: '1.11.0'
+      - name: Root contract checks
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install
+          npm run layout:check
+          npm run safety:audit
+          npm run contracts:check
+      - name: Postgres lifecycle invariants
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://raw.githubusercontent.com/ORESoftware/ores-locks-and-leases/${ORES_LOCKS_AND_LEASES_SQL_REV}/persistence/postgres/fencing.sql"
+          curl --fail --silent --show-error --proto '=https' --tlsv1.2 --max-time 30 "$url" -o /tmp/ores-locks-fencing.sql
+          psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f /tmp/ores-locks-fencing.sql
+          for file in sql/postgres/[0-9][0-9][0-9]_*.sql; do
+            psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$file"
+          done
+          for file in sql/postgres/tests/*.sql; do
+            psql -h localhost -U postgres -d postgres -v ON_ERROR_STOP=1 -f "$file"
+          done
+      - name: Rust adapter
+        working-directory: target
+        run: cargo test --manifest-path src/rust/Cargo.toml
+      - name: Go adapter
+        working-directory: target/src/golang
+        run: go test ./...
+      - name: TypeScript adapter
+        working-directory: target/src/typescript
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install
+          npm test
+      - name: Gleam adapter
+        working-directory: target/src/gleam
+        shell: bash
+        run: |
+          set -euo pipefail
+          gleam deps download
+          gleam test
+      - name: Cockroach serializable fencing smoke
+        working-directory: target
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --rm --name ores-crdb -p 26257:26257 -p 8080:8080             cockroachdb/cockroach:v26.2.3 start-single-node --insecure --listen-addr=0.0.0.0:26257 --http-addr=0.0.0.0:8080
+          trap 'docker stop ores-crdb || true' EXIT
+          for i in $(seq 1 30); do
+            if docker exec ores-crdb cockroach sql --insecure --host=localhost:26257 --execute 'select 1' >/dev/null 2>&1; then break; fi
+            sleep 2
+          done
+          docker exec -i ores-crdb cockroach sql --insecure --host=localhost:26257 < sql/cockroach/001_fencing.sql
+          docker exec ores-crdb cockroach sql --insecure --host=localhost:26257 --execute             "INSERT INTO ores_lifecycle_fencing_watermarks(tenant_scope,resource_key,fencing_token,operation_id,payload_sha256) VALUES ('oresoftware/prod','oresoftware/data-lifecycle/prod/default-v2',18446744073709551615,'smoke','aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'); SELECT fencing_token FROM ores_lifecycle_fencing_watermarks;"
