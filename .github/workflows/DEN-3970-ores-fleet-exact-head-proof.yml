@@ -1,6 +1,7 @@
 name: DEN-3970 ores fleet exact-head proof
 
 on:
+  pull_request:
   push:
     branches:
       - DEN-3970-ores-fleet-exact-head-proof-20260924
