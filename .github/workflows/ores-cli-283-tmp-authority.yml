@@ -1,0 +1,85 @@
+name: ores-cli PR 283 temp-root authority certification
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/ores-cli-283-tmp-authority.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 35
+    steps:
+      - name: Check out certification repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Check out exact ores-cli candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ORESoftware/ores-cli
+          ref: fdab96526e954a370cc65174ae685c572265337c
+          path: product
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Verify exact source identity and candidate module
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C product rev-parse HEAD)" = 'fdab96526e954a370cc65174ae685c572265337c'
+          test "$(git -C product rev-parse HEAD:src/audit/authority_write_protection.rs)" = 'ba77043c08b0f37bee5c0630be12e71c5b77a18f'
+          grep -Fq 'config_declared_custom_json_schema_is_protected' product/src/audit/authority_write_protection.rs
+          grep -Fq 'path_has_generated_component(&canonical)' product/src/audit/authority_write_protection.rs
+          git -C product diff --check
+
+      - name: Install product Rust toolchain
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: '1.95.0'
+          components: rustfmt, clippy
+
+      - name: Show native temporary-root semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import tempfile
+          print('native temp root:', tempfile.gettempdir())
+          PY
+
+      - name: Format exact authority-write module
+        working-directory: product
+        run: cargo +1.95.0 fmt --all -- --check
+
+      - name: Execute config-declared authority regression
+        working-directory: product
+        env:
+          RUST_BACKTRACE: '1'
+        run: cargo +1.95.0 test --locked config_declared_custom_json_schema_is_protected -- --nocapture
+
+      - name: Execute neighboring authority-write regressions
+        working-directory: product
+        run: |
+          set -euo pipefail
+          cargo +1.95.0 test --locked rejects_shell_overwrite_of_authored_json_schema -- --nocapture
+          cargo +1.95.0 test --locked generated_schema_b_is_not_an_authored_write_target -- --nocapture
+          cargo +1.95.0 test --locked allows_tjsv_reads_and_generated_json_output -- --nocapture
+
+      - name: Prove exact source remained immutable
+        working-directory: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 'fdab96526e954a370cc65174ae685c572265337c'
+          test -z "$(git status --porcelain --untracked-files=no)"
