@@ -1,0 +1,63 @@
+name: certify ores-stack 304-306 lambda contract parity
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/certify-ores-stack-304-306.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-head-contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pr: 304
+            sha: 596ddc4c3617e844a7b3639a94d392b9b9576d62
+          - pr: 305
+            sha: e0b0fcc1c1a5e9112c7691d2e0c090b6d1070780
+          - pr: 306
+            sha: 6abfa6c20fa507308afc6259f5017b3e746e5768
+    steps:
+      - name: Check out exact ores-stack PR head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ORESoftware/ores-stack
+          ref: ${{ matrix.sha }}
+          path: ores-stack
+          persist-credentials: false
+
+      - name: Verify exact source revision
+        working-directory: ores-stack
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ matrix.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+
+      - name: Set up source CI Node runtime
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 22
+
+      - name: Install source contract dependencies
+        working-directory: ores-stack
+        run: npm install
+
+      - name: Run full source contract parity suite
+        working-directory: ores-stack
+        run: |
+          mkdir -p .ores-stack
+          npm run check:contracts
+
+      - name: Run repository conformance boundary
+        working-directory: ores-stack
+        run: |
+          node --check conformance/check.mjs
+          node conformance/check.mjs
