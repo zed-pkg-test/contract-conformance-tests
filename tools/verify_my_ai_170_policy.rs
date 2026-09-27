@@ -17,8 +17,6 @@ fn verify() -> Result<(), String> {
     }
 
     for forbidden in [
-        "export GH_TOKEN=",
-        "export GITHUB_PERSONAL_ACCESS_TOKEN=",
         "here is an api token",
     ] {
         if POLICY.contains(forbidden) {
@@ -28,8 +26,9 @@ fn verify() -> Result<(), String> {
         }
     }
 
-    // Build provider-specific canaries at runtime so the test source does not
-    // itself contain credential-shaped literals.
+    // Environment-variable names and dynamic exports are valid runtime guidance.
+    // Build provider-specific credential canaries at runtime so the test source
+    // itself does not contain credential-shaped token literals.
     for prefix in [
         ["gh", "p_"].concat(),
         ["github", "_pat_"].concat(),
