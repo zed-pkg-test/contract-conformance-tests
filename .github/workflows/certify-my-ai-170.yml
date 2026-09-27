@@ -30,7 +30,7 @@ jobs:
         run: |
           set -euo pipefail
           root='evidence/my-ai-170'
-          test "$(jq -r '.commit_sha' "$root/source-lock.json")" = '200eddf5b4f3929455bd5dea80d2540e5fffcf19'
+          test "$(jq -r '.commit_sha' "$root/source-lock.json")" = '60c1ee3d2a5cde525ab01c35f646551270d838fe'
           expected="$(jq -r '.files["SHARED.md"]' "$root/source-lock.json")"
           test "$(git hash-object "$root/SHARED.md")" = "$expected"
 
