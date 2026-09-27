@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oresoftware.dev/schemas/ores-lambda-artifact-receipt-v2.schema.json",
+  "$comment": "Authored independently from TypeSpec. The receipt exposes carrier and source-byte provenance directly while build_unit_sha256 cryptographically binds the complete validated build unit. Tooling requires source_sha256 == lambda_source_sha256, deterministic wrapper equality, and Linux ELF64 little-endian executable admission whose e_machine matches architecture; that byte-level ELF relation is intentionally enforced by tooling because JSON Schema cannot inspect executable bytes.",
+  "$defs": {
+    "sha256_hex": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "git_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "repository_identity": { "type": "string", "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$" },
+    "lambda_artifact_provider": { "enum": ["aws", "gcp"] },
+    "lambda_artifact_kind": { "enum": ["web", "api"] },
+    "lambda_artifact_carrier": { "enum": ["http_ingress", "direct_invoke"] },
+    "lambda_build_architecture": { "enum": ["x86_64", "arm64"] },
+    "receipt": {
+      "type": "object",
+      "unevaluatedProperties": false,
+      "required": ["schema_version", "generated_by", "build_schema_version", "provider", "kind", "carrier", "architecture", "repository", "commit_sha", "lambda_source", "lambda_source_sha256", "build_unit_sha256", "source_sha256", "wrapper_sha256", "executable_sha256", "artifact_sha256", "artifact_path", "deploy_mutation_performed"],
+      "properties": {
+        "schema_version": { "const": "ores.lambda.artifact.receipt.v2" },
+        "generated_by": { "const": "ores-stack" },
+        "build_schema_version": { "const": "ores.lambda.build.v2" },
+        "provider": { "$ref": "#/$defs/lambda_artifact_provider" },
+        "kind": { "$ref": "#/$defs/lambda_artifact_kind" },
+        "carrier": { "$ref": "#/$defs/lambda_artifact_carrier" },
+        "architecture": { "$ref": "#/$defs/lambda_build_architecture" },
+        "repository": { "$ref": "#/$defs/repository_identity" },
+        "commit_sha": { "$ref": "#/$defs/git_sha" },
+        "lambda_source": { "type": "string", "pattern": "^src/(pages|routes)/(.+/)?lambda\\.rs$" },
+        "lambda_source_sha256": { "$ref": "#/$defs/sha256_hex" },
+        "build_unit_sha256": { "$ref": "#/$defs/sha256_hex" },
+        "source_sha256": { "$ref": "#/$defs/sha256_hex" },
+        "wrapper_sha256": { "$ref": "#/$defs/sha256_hex" },
+        "executable_sha256": { "$ref": "#/$defs/sha256_hex" },
+        "artifact_sha256": { "$ref": "#/$defs/sha256_hex" },
+        "artifact_path": { "type": "string", "pattern": "^build/lambda/(aws|gcp)/funcs/(web|api)/(http_ingress|direct_invoke)/.+/artifact/(x86_64|arm64)/(bootstrap\\.zip|service)$" },
+        "deploy_mutation_performed": { "const": false }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "provider": { "const": "gcp" } }, "required": ["provider"] },
+          "then": { "properties": { "carrier": { "const": "http_ingress" }, "architecture": { "const": "x86_64" } } }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "web" } }, "required": ["kind"] },
+          "then": { "properties": { "carrier": { "const": "http_ingress" } } }
+        },
+        {
+          "if": { "properties": { "provider": { "const": "aws" } }, "required": ["provider"] },
+          "then": { "properties": { "artifact_path": { "pattern": "/artifact/(x86_64|arm64)/bootstrap\\.zip$" } } }
+        },
+        {
+          "if": { "properties": { "provider": { "const": "gcp" } }, "required": ["provider"] },
+          "then": { "properties": { "artifact_path": { "pattern": "/artifact/x86_64/service$" } } }
+        }
+      ]
+    }
+  },
+  "$ref": "#/$defs/receipt"
+}
