@@ -12,7 +12,7 @@
       }
     },
     "305": {
-      "commit_sha": "e0b0fcc1c1a5e9112c7691d2e0c090b6d1070780",
+      "commit_sha": "8993ca5e471d56914724207f8e0065d8e332bafc",
       "files": {
         "package.json": "38120d650027bd5d6772bd56a2d60648620dc224",
         "contracts/ores-lambda-callable-registry.tsp": "fec89e0aef8599354e90aae33e78142ff22b663e",
@@ -24,7 +24,7 @@
       }
     },
     "306": {
-      "commit_sha": "6abfa6c20fa507308afc6259f5017b3e746e5768",
+      "commit_sha": "a755fb383d281428a583421b99d725652379ca22",
       "files": {
         "package.json": "5a681de1235e5282d25f80b32c15b489eb335493",
         "contracts/ores-lambda-callable-registry.tsp": "fec89e0aef8599354e90aae33e78142ff22b663e",
