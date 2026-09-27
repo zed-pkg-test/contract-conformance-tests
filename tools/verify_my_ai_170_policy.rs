@@ -16,9 +16,7 @@ fn verify() -> Result<(), String> {
         }
     }
 
-    for forbidden in [
-        "here is an api token",
-    ] {
+    for forbidden in ["here is an api token"] {
         if POLICY.contains(forbidden) {
             return Err(format!(
                 "credential-bearing legacy policy text remains: {forbidden:?}"
