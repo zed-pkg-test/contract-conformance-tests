@@ -10,7 +10,9 @@ fn verify() -> Result<(), String> {
         "Revocation or rotation is a human-authorized operation.",
     ] {
         if !POLICY.contains(required) {
-            return Err(format!(\n                "missing hardened credential-policy invariant: {required:?}"\n            ));
+            return Err(format!(
+                "missing hardened credential-policy invariant: {required:?}"
+            ));
         }
     }
 
@@ -20,7 +22,9 @@ fn verify() -> Result<(), String> {
         "here is an api token",
     ] {
         if POLICY.contains(forbidden) {
-            return Err(format!(\n                "credential-bearing legacy policy text remains: {forbidden:?}"\n            ));
+            return Err(format!(
+                "credential-bearing legacy policy text remains: {forbidden:?}"
+            ));
         }
     }
 
@@ -33,7 +37,9 @@ fn verify() -> Result<(), String> {
         ["nt", "n_"].concat(),
     ] {
         if POLICY.contains(&prefix) {
-            return Err(format!(\n                "credential-shaped provider token prefix remains: {prefix:?}"\n            ));
+            return Err(format!(
+                "credential-shaped provider token prefix remains: {prefix:?}"
+            ));
         }
     }
 
