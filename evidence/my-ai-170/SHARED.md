@@ -825,8 +825,10 @@ Paths, in order (or in parallel):
    `https://mcp.linear.app/mcp/readonly`. Prefer readonly for audits.
 2. Linear MCP stdio (`@sylphx/linear-mcp` or similar) — only if
    `LINEAR_API_KEY` is a real key, **not** the literal `from-env`.
-3. Linear GraphQL: `https://api.linear.app/graphql` with
-   `Authorization: <fallback lin_api_ token in this file, or a user-pasted token>`.
+3. Linear GraphQL: `https://api.linear.app/graphql` with an
+   `Authorization` header sourced from the approved `LINEAR_API_KEY` runtime
+   secret boundary. Never source that credential from this repository, chat history,
+   issue text, or a pasted transcript.
 4. The Linear web UI is for humans. Agents use 1–3.
 
 `LINEAR_API_KEY=from-env` is the same bug class as GitHub MCP. Unset it or
@@ -839,8 +841,10 @@ call it Done. Search before creating; prefer relating (`related`, `duplicate`,
 title (see the mapping at the top of this file).
 
 A green Linear MCP `namespaceStatus: ready` is not proof of auth. If MCP fails,
-use GraphQL with the fallback token. If GraphQL fails, say which path you tried
-and which error you got — then try the other path. Figure it out.
+use GraphQL with `LINEAR_API_KEY` resolved from the approved runtime credential
+source. If that credential is unavailable, request reauthentication instead of
+falling back to repository or chat material. If GraphQL fails, say which path you
+tried and which error you got — then try the other approved path.
 
 
 ## Plan first, code second
