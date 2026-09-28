@@ -1,14 +1,183 @@
 name: certify ores common desktop infra pr1
 
 on:
+  push:
+    branches:
+      - proof/ores-common-desktop-infra-pr1
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  fixture-building:
-    if: ${{ false }}
+  core-linux:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - run: echo fixture is being assembled
+      - uses: actions/checkout@v4
+
+      - name: Verify source fixture marker
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '7650bf7bb0c25d7f3c3a337a4970d639e8657429' fixtures/ores-common-desktop-infra/SOURCE.md
+
+      - name: Test Rust workspace with locked dependency resolution
+        working-directory: fixtures/ores-common-desktop-infra
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          cargo generate-lockfile
+          cargo test --workspace --all-targets --locked
+          cp Cargo.lock "${GITHUB_WORKSPACE}/ores-common-desktop-infra.Cargo.lock"
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          rebar3-version: "3.24.0"
+
+      - name: Compile Erlang shared components
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="${GITHUB_WORKSPACE}/fixtures/ores-common-desktop-infra"
+          for component in infra cli daemon; do
+            (cd "${root}/${component}/erlang" && rebar3 compile)
+          done
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - name: Validate Terraform modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="${GITHUB_WORKSPACE}/fixtures/ores-common-desktop-infra"
+          cd "${root}"
+          terraform fmt -check -recursive infra/terraform cli/terraform daemon/terraform
+          for component in infra cli daemon; do
+            terraform -chdir="${component}/terraform" init -backend=false
+            terraform -chdir="${component}/terraform" validate
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ores-common-desktop-infra-cargo-lock
+          path: ores-common-desktop-infra.Cargo.lock
+          if-no-files-found: error
+
+  flutter-android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Analyze and test shared Flutter package
+        working-directory: fixtures/ores-common-desktop-infra/flutter
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter pub get
+          flutter analyze
+          flutter test
+
+      - name: Compile Android consumer app with native plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/ores-mobile-host-consumer
+          flutter create --platforms=android --empty /tmp/ores-mobile-host-consumer
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          app = Path('/tmp/ores-mobile-host-consumer')
+          fixture = Path(os.environ['GITHUB_WORKSPACE']) / 'fixtures/ores-common-desktop-infra/flutter'
+          pubspec = app / 'pubspec.yaml'
+          source = pubspec.read_text()
+          needle = 'dependencies:\n  flutter:\n'
+          replacement = f'dependencies:\n  ores_common_mobile_host:\n    path: {fixture}\n  flutter:\n'
+          if needle not in source:
+              raise SystemExit('could not locate Flutter dependencies section')
+          pubspec.write_text(source.replace(needle, replacement, 1))
+
+          kotlin = app / 'android/app/build.gradle.kts'
+          groovy = app / 'android/app/build.gradle'
+          if kotlin.exists():
+              text = kotlin.read_text()
+              text = text.replace('minSdk = flutter.minSdkVersion', 'minSdk = 26')
+              kotlin.write_text(text)
+          elif groovy.exists():
+              text = groovy.read_text()
+              text = text.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 26')
+              groovy.write_text(text)
+          PY
+          cat > /tmp/ores-mobile-host-consumer/lib/main.dart <<'DART'
+          import 'package:flutter/material.dart';
+          import 'package:ores_common_mobile_host/ores_common_mobile_host.dart';
+
+          void main() {
+            const policy = KeepalivePromptPolicy(promptsPerDay: 4);
+            policy.validate();
+            runApp(const MaterialApp(home: SizedBox.shrink()));
+          }
+          DART
+          cd /tmp/ores-mobile-host-consumer
+          flutter pub get
+          flutter build apk --debug
+
+  flutter-ios:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Compile iOS consumer app with native plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/ores-mobile-host-consumer
+          flutter create --platforms=ios --empty /tmp/ores-mobile-host-consumer
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          app = Path('/tmp/ores-mobile-host-consumer')
+          fixture = Path(os.environ['GITHUB_WORKSPACE']) / 'fixtures/ores-common-desktop-infra/flutter'
+          pubspec = app / 'pubspec.yaml'
+          source = pubspec.read_text()
+          needle = 'dependencies:\n  flutter:\n'
+          replacement = f'dependencies:\n  ores_common_mobile_host:\n    path: {fixture}\n  flutter:\n'
+          if needle not in source:
+              raise SystemExit('could not locate Flutter dependencies section')
+          pubspec.write_text(source.replace(needle, replacement, 1))
+          PY
+          cat > /tmp/ores-mobile-host-consumer/lib/main.dart <<'DART'
+          import 'package:flutter/material.dart';
+          import 'package:ores_common_mobile_host/ores_common_mobile_host.dart';
+
+          void main() {
+            const policy = KeepalivePromptPolicy(promptsPerDay: 4);
+            policy.validate();
+            runApp(const MaterialApp(home: SizedBox.shrink()));
+          }
+          DART
+          cd /tmp/ores-mobile-host-consumer
+          flutter pub get
+          flutter build ios --debug --no-codesign
