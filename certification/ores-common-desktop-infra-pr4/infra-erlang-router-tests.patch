@@ -1,0 +1,100 @@
+diff --git a/infra/erlang/test/ores_common_desktop_router_tests.erl b/infra/erlang/test/ores_common_desktop_router_tests.erl
+new file mode 100644
+--- /dev/null
++++ b/infra/erlang/test/ores_common_desktop_router_tests.erl
+@@ -0,0 +1,95 @@
++-module(ores_common_desktop_router_tests).
++
++-include_lib("eunit/include/eunit.hrl").
++
++atomic_snapshot_and_case_insensitive_host_test() ->
++    with_clean_router(
++        fun() ->
++            Routes = #{
++                {<<"Example.Local">>, <<"/api">>} => #{
++                    host => {127, 0, 0, 1},
++                    port => 8080
++                }
++            },
++            ok = ores_common_desktop_router:replace_routes(<<"rev-a">>, Routes),
++            ?assertEqual(<<"rev-a">>, ores_common_desktop_router:revision()),
++            ?assertEqual(
++                {ok, #{host => {127, 0, 0, 1}, port => 8080}},
++                ores_common_desktop_router:route(<<"example.local">>, <<"/api/users">>)
++            ),
++            ?assertEqual(
++                {<<"rev-a">>, #{
++                    {<<"example.local">>, <<"/api">>} => #{
++                        host => {127, 0, 0, 1},
++                        port => 8080
++                    }
++                }},
++                ores_common_desktop_router:snapshot()
++            )
++        end
++    ).
++
++same_revision_with_different_routes_is_rejected_test() ->
++    with_clean_router(
++        fun() ->
++            First = #{{<<"example.local">>, <<"/">>} => #{host => {127, 0, 0, 1}, port => 8080}},
++            Second = #{{<<"example.local">>, <<"/">>} => #{host => {127, 0, 0, 1}, port => 9090}},
++            ok = ores_common_desktop_router:replace_routes(<<"rev-conflict">>, First),
++            ?assertEqual(
++                {error, revision_conflict},
++                ores_common_desktop_router:replace_routes(<<"rev-conflict">>, Second)
++            ),
++            ?assertEqual(
++                {ok, #{host => {127, 0, 0, 1}, port => 8080}},
++                ores_common_desktop_router:route(<<"example.local">>, <<"/">>)
++            )
++        end
++    ).
++
++invalid_route_is_rejected_without_crashing_router_test() ->
++    with_clean_router(
++        fun() ->
++            Routes = #{{<<"example.local">>, <<"/">>} => #{host => {10, 0, 0, 8}, port => 8080}},
++            ?assertMatch(
++                {error, {non_loopback_target, {10, 0, 0, 8}}},
++                ores_common_desktop_router:replace_routes(<<"rev-invalid">>, Routes)
++            ),
++            ?assert(is_pid(whereis(ores_common_desktop_router)))
++        end
++    ).
++
++committed_snapshot_survives_router_restart_test() ->
++    with_clean_router(
++        fun() ->
++            Routes = #{{<<"restart.local">>, <<"/">>} => #{host => {127, 0, 0, 1}, port => 8181}},
++            ok = ores_common_desktop_router:replace_routes(<<"rev-restart">>, Routes),
++            stop_router(),
++            {ok, Pid} = ores_common_desktop_router:start_link(),
++            unlink(Pid),
++            ?assertEqual(<<"rev-restart">>, ores_common_desktop_router:revision()),
++            ?assertEqual(
++                {ok, #{host => {127, 0, 0, 1}, port => 8181}},
++                ores_common_desktop_router:route(<<"restart.local">>, <<"/anything">>)
++            )
++        end
++    ).
++
++with_clean_router(Fun) ->
++    stop_router(),
++    persistent_term:erase({ores_common_desktop_router, snapshot}),
++    {ok, Pid} = ores_common_desktop_router:start_link(),
++    unlink(Pid),
++    try
++        Fun()
++    after
++        stop_router(),
++        persistent_term:erase({ores_common_desktop_router, snapshot})
++    end.
++
++stop_router() ->
++    case whereis(ores_common_desktop_router) of
++        undefined ->
++            ok;
++        Pid ->
++            gen_server:stop(Pid)
++    end.
