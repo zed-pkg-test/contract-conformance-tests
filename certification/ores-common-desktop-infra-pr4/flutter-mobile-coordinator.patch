@@ -1,0 +1,37 @@
+diff --git a/flutter/lib/src/mobile_host_coordinator.dart b/flutter/lib/src/mobile_host_coordinator.dart
+--- a/flutter/lib/src/mobile_host_coordinator.dart
++++ b/flutter/lib/src/mobile_host_coordinator.dart
+@@ -67,16 +67,22 @@ class MobileHostCoordinator {
+ 
+     final capabilities = await _backgroundBridge.capabilities();
+ 
+-    if (!capabilities.supportsPersistentOrigin) {
++    if (!capabilities.supportsPersistentOrigin ||
++        !capabilities.persistentRuntimeReady) {
+       throw StateError(
+-        '${capabilities.platform} does not support persistent background origin hosting',
++        '${capabilities.platform} does not have a background-safe persistent runtime installed',
+       );
+     }
+ 
+     if (config.mode != MobileHostingMode.persistentOrigin) {
+       throw StateError('persistent start requires persistentOrigin mode');
+     }
+ 
++    if (capabilities.persistentRuntimeManagedByService) {
++      await _backgroundBridge.startPersistentHosting(config);
++      return;
++    }
++
+     await _bindOrigin(config);
+     await _backgroundBridge.startPersistentHosting(config);
+ 
+@@ -160,7 +166,7 @@ class MobileHostCoordinator {
+         await _originHandler.handle(request);
+       } catch (error) {
+         request.response.statusCode = HttpStatus.internalServerError;
+-        request.response.write('local origin handler failed: $error');
++        request.response.write('local origin handler failed');
+         await request.response.close();
+       }
+     }
