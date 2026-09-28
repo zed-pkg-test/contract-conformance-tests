@@ -1,0 +1,6 @@
+{application, ores_common_desktop_infra,
+ [{description, "Hot-loadable shared desktop routing primitives"},
+  {vsn, "0.1.0"},
+  {registered, [ores_common_desktop_router]},
+  {applications, [kernel, stdlib]},
+  {modules, [ores_common_desktop_adapter, ores_common_desktop_router]}]}.
