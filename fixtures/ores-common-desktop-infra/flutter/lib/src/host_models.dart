@@ -78,8 +78,20 @@ class MobileHostConfig {
       throw ArgumentError.value(originPort, 'originPort', 'must be a valid TCP port');
     }
 
-    if (!relayUrl.hasScheme || relayUrl.host.isEmpty) {
-      throw ArgumentError.value(relayUrl, 'relayUrl', 'must be an absolute URI');
+    if (relayUrl.scheme != 'https' || relayUrl.host.isEmpty) {
+      throw ArgumentError.value(
+        relayUrl,
+        'relayUrl',
+        'must be an absolute HTTPS URI',
+      );
+    }
+
+    if (relayUrl.userInfo.isNotEmpty || relayUrl.hasFragment) {
+      throw ArgumentError.value(
+        relayUrl,
+        'relayUrl',
+        'must not contain user info or a fragment',
+      );
     }
   }
 }
