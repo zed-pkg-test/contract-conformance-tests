@@ -1,0 +1,74 @@
+diff --git a/daemon/erlang/test/ores_common_desktop_upgrade_tests.erl b/daemon/erlang/test/ores_common_desktop_upgrade_tests.erl
+new file mode 100644
+--- /dev/null
++++ b/daemon/erlang/test/ores_common_desktop_upgrade_tests.erl
+@@ -0,0 +1,69 @@
++-module(ores_common_desktop_upgrade_tests).
++
++-include_lib("eunit/include/eunit.hrl").
++
++successful_stateful_upgrade_test() ->
++    {ok, Pid} = ores_common_desktop_upgrade_fixture:start_link(),
++    unlink(Pid),
++    try
++        ?assertEqual(
++            ok,
++            ores_common_desktop_upgrade:upgrade_server(
++                Pid,
++                ores_common_desktop_upgrade_fixture,
++                old,
++                succeed
++            )
++        ),
++        ?assertEqual(
++            #{value => 1, upgraded => true},
++            ores_common_desktop_upgrade_fixture:state(Pid)
++        )
++    after
++        stop_fixture(Pid)
++    end.
++
++failed_stateful_upgrade_rolls_back_and_resumes_test() ->
++    {ok, Pid} = ores_common_desktop_upgrade_fixture:start_link(),
++    unlink(Pid),
++    try
++        Result = ores_common_desktop_upgrade:upgrade_server(
++            Pid,
++            ores_common_desktop_upgrade_fixture,
++            old,
++            fail
++        ),
++        ?assertMatch(
++            {error, {
++                code_change_failed,
++                ores_common_desktop_upgrade_fixture,
++                forced_code_change_failure,
++                rolled_back
++            }},
++            Result
++        ),
++        ?assert(is_process_alive(Pid)),
++        ?assertEqual(
++            #{value => 1},
++            ores_common_desktop_upgrade_fixture:state(Pid)
++        )
++    after
++        stop_fixture(Pid)
++    end.
++
++invalid_reload_module_fails_before_partial_change_test() ->
++    ?assertEqual(
++        {error, {invalid_module, <<"not-an-atom">>}},
++        ores_common_desktop_upgrade:reload_modules([
++            ores_common_desktop_upgrade_fixture,
++            <<"not-an-atom">>
++        ])
++    ).
++
++stop_fixture(Pid) ->
++    case is_process_alive(Pid) of
++        true ->
++            gen_server:stop(Pid);
++        false ->
++            ok
++    end.
