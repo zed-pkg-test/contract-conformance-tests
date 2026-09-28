@@ -122,6 +122,8 @@ mod tests {
     use ores_common_desktop_cli::{ControlRequest, DeploySource, ResolvedCliConfig};
     use std::path::PathBuf;
 
+    const PINNED_API_DOCS_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
     struct TestApp;
 
     impl ProductCliAdapter for TestApp {
@@ -177,9 +179,12 @@ mod tests {
 
     #[test]
     fn desktop_app_can_submit_local_folder_deployment() {
-        let deploy = DeployRequest::canonical(DeploySource::LocalFolder {
-            path: PathBuf::from("/work/app"),
-        });
+        let deploy = DeployRequest::canonical(
+            DeploySource::LocalFolder {
+                path: PathBuf::from("/work/app"),
+            },
+            PINNED_API_DOCS_SHA,
+        );
         let response = send_deploy_command(
             &TestApp,
             &TestTransport,
