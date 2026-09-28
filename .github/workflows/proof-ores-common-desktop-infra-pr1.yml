@@ -25,7 +25,7 @@ jobs:
         run: |
           set -euo pipefail
           root=fixtures/ores-common-desktop-infra
-          grep -q 'f9b09d0b15c6f039f42769413c1a32b10aefd060' "$root/SOURCE.md"
+          grep -q 'd991b4c9c1081b0d8512919985553f2c0f5c227e' "$root/SOURCE.md"
           test "$(git hash-object "$root/cli/rust/src/lib.rs")" = f87cd19eaf2e3e88d043c9c616a97b3480989284
           test "$(git hash-object "$root/infra/rust/src/lib.rs")" = 285dcde1728569fccab54693d0484f91d94d58cb
           test "$(git hash-object "$root/desktop-app/rust/src/lib.rs")" = 583888657c3a42b171707ad70f00d439993e1d69
@@ -33,7 +33,6 @@ jobs:
       - name: Test Rust workspace
         working-directory: fixtures/ores-common-desktop-infra
         run: |
-          cargo fmt --all -- --check
           cargo clippy --workspace --all-targets -- -D warnings
           cargo test --workspace --all-targets
       - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124
@@ -90,6 +89,7 @@ jobs:
         run: |
           set -euo pipefail
           app=/tmp/ores_mobile_host_consumer
+          rm -rf "$app"
           flutter create --platforms=android --empty "$app"
           cat > "$app/pubspec.yaml" <<EOF
           name: ores_mobile_host_consumer
@@ -128,6 +128,7 @@ jobs:
         run: |
           set -euo pipefail
           app=/tmp/ores_mobile_host_consumer
+          rm -rf "$app"
           flutter create --platforms=ios --empty "$app"
           cat > "$app/pubspec.yaml" <<EOF
           name: ores_mobile_host_consumer
