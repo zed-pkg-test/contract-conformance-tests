@@ -1,0 +1,5 @@
+{application, ores_common_desktop_cli,
+ [{description, "Shared BEAM desktop CLI request helpers"},
+  {vsn, "0.1.0"},
+  {applications, [kernel, stdlib]},
+  {modules, [ores_common_desktop_cli, ores_common_desktop_cli_adapter]}]}.
