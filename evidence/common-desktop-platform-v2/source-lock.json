@@ -2,7 +2,7 @@
   "source": {
     "repository": "ORESoftware/ores-common-desktop-infra",
     "pull_request": 20,
-    "commit_sha": "8bc0f536c199408d68beb9acea6f76fc373ce27f"
+    "commit_sha": "84f7e3008edf532357aebe82cf7a3c35f62c197e"
   },
   "files": {
     "lock-workspace/Cargo.toml": "83fc4f01040cdb3b4260149234ff763ef0e88609",
@@ -17,6 +17,6 @@
     "lock-workspace/conformance/rust/Cargo.toml": "8858534c0de63085cc215b0e79acc0b3db74f413",
     "lock-workspace/infra/rust/Cargo.toml": "675dc8092b5cec815605189a4d13254710cd95c4",
     "delta-workspace/infra-recovery/src/generation.rs": "566dbf86b6c751aa53cd996b6ecb698de47a9b8c",
-    "source-snapshots/recovery_conformance.rs": "96f3134504b3c2831caf30c7783888848bdf2900"
+    "source-snapshots/recovery_conformance.rs": "b670264df2d5b453fa6cdc0b59453631fd2c7064"
   }
 }
