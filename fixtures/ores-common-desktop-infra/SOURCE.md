@@ -4,7 +4,7 @@ Source repository: `ORESoftware/ores-common-desktop-infra`
 
 Source pull request: `#6`
 
-Source head tested: `d991b4c9c1081b0d8512919985553f2c0f5c227e`
+Source head tested: `b63e732707e4c7bbd205ed2a5dab71469158f35d`
 
 This fixture mirrors the executable/validation surface of that source head for external GitHub Actions certification in a `*-test` organization because the private source repository has historically failed to admit GitHub-hosted runners.
 
