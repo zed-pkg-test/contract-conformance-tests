@@ -1,3 +1,5 @@
+#![allow(clippy::needless_return)]
+
 use ores_common_desktop_infra_recovery_proof::generation::{
     DeploymentJournalEntry, GenerationError, GenerationIdentity, OperationStage, RecoveryAction,
 };
