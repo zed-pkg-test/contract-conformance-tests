@@ -1,3 +1,5 @@
+#![allow(clippy::needless_return)]
+
 use ores_common_desktop_infra::generation::{
     DeploymentJournalEntry, GenerationError, GenerationIdentity, OperationStage, RecoveryAction,
 };
