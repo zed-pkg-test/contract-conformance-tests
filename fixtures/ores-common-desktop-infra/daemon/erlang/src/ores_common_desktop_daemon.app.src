@@ -1,0 +1,7 @@
+{application, ores_common_desktop_daemon,
+ [{description, "Shared OTP supervision and hot-upgrade helpers for desktop daemons"},
+  {vsn, "0.1.0"},
+  {registered, [ores_common_desktop_daemon_sup]},
+  {applications, [kernel, stdlib]},
+  {mod, {ores_common_desktop_daemon_app, []}},
+  {modules, [ores_common_desktop_daemon_adapter, ores_common_desktop_daemon_app, ores_common_desktop_daemon_sup, ores_common_desktop_upgrade]}]}.
