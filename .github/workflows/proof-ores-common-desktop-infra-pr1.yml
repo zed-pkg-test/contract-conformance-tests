@@ -96,13 +96,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/ores-mobile-host-consumer
-          flutter create --platforms=android --empty /tmp/ores-mobile-host-consumer
+          rm -rf /tmp/ores_mobile_host_consumer
+          flutter create --platforms=android --empty /tmp/ores_mobile_host_consumer
           python3 - <<'PY'
           import os
           from pathlib import Path
 
-          app = Path('/tmp/ores-mobile-host-consumer')
+          app = Path('/tmp/ores_mobile_host_consumer')
           fixture = Path(os.environ['GITHUB_WORKSPACE']) / 'fixtures/ores-common-desktop-infra/flutter'
           pubspec = app / 'pubspec.yaml'
           source = pubspec.read_text()
@@ -123,7 +123,7 @@ jobs:
               text = text.replace('minSdkVersion flutter.minSdkVersion', 'minSdkVersion 26')
               groovy.write_text(text)
           PY
-          cat > /tmp/ores-mobile-host-consumer/lib/main.dart <<'DART'
+          cat > /tmp/ores_mobile_host_consumer/lib/main.dart <<'DART'
           import 'package:flutter/material.dart';
           import 'package:ores_common_mobile_host/ores_common_mobile_host.dart';
 
@@ -133,7 +133,7 @@ jobs:
             runApp(const MaterialApp(home: SizedBox.shrink()));
           }
           DART
-          cd /tmp/ores-mobile-host-consumer
+          cd /tmp/ores_mobile_host_consumer
           flutter pub get
           flutter build apk --debug
 
@@ -152,13 +152,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf /tmp/ores-mobile-host-consumer
-          flutter create --platforms=ios --empty /tmp/ores-mobile-host-consumer
+          rm -rf /tmp/ores_mobile_host_consumer
+          flutter create --platforms=ios --empty /tmp/ores_mobile_host_consumer
           python3 - <<'PY'
           import os
           from pathlib import Path
 
-          app = Path('/tmp/ores-mobile-host-consumer')
+          app = Path('/tmp/ores_mobile_host_consumer')
           fixture = Path(os.environ['GITHUB_WORKSPACE']) / 'fixtures/ores-common-desktop-infra/flutter'
           pubspec = app / 'pubspec.yaml'
           source = pubspec.read_text()
@@ -168,7 +168,7 @@ jobs:
               raise SystemExit('could not locate Flutter dependencies section')
           pubspec.write_text(source.replace(needle, replacement, 1))
           PY
-          cat > /tmp/ores-mobile-host-consumer/lib/main.dart <<'DART'
+          cat > /tmp/ores_mobile_host_consumer/lib/main.dart <<'DART'
           import 'package:flutter/material.dart';
           import 'package:ores_common_mobile_host/ores_common_mobile_host.dart';
 
@@ -178,6 +178,6 @@ jobs:
             runApp(const MaterialApp(home: SizedBox.shrink()));
           }
           DART
-          cd /tmp/ores-mobile-host-consumer
+          cd /tmp/ores_mobile_host_consumer
           flutter pub get
           flutter build ios --debug --no-codesign
