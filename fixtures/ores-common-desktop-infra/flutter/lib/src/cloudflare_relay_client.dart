@@ -12,7 +12,11 @@ class CloudflareRelayClient implements MobileRelayClient {
     required AccessTokenProvider accessTokenProvider,
     this.maxRequestBodyBytes = 4 * 1024 * 1024,
     this.maxResponseBodyBytes = 4 * 1024 * 1024,
-  }) : _accessTokenProvider = accessTokenProvider;
+  }) : _accessTokenProvider = accessTokenProvider {
+    if (maxRequestBodyBytes <= 0 || maxResponseBodyBytes <= 0) {
+      throw ArgumentError('relay body limits must be positive');
+    }
+  }
 
   static const Set<String> _allowedMethods = <String>{
     'GET',
@@ -37,9 +41,11 @@ class CloudflareRelayClient implements MobileRelayClient {
     required MobileHostConfig config,
     required Uri localOrigin,
   }) async {
+    config.validate();
+    _validateLocalOrigin(localOrigin);
     await closePersistentSession();
 
-    final token = await _accessTokenProvider();
+    final token = await _requiredAccessToken();
     final socket = await WebSocket.connect(
       _webSocketEndpoint(config.relayUrl, 'session').toString(),
       headers: <String, dynamic>{
@@ -100,9 +106,16 @@ class CloudflareRelayClient implements MobileRelayClient {
     required Uri localOrigin,
     required Duration budget,
   }) async {
+    config.validate();
+    _validateLocalOrigin(localOrigin);
+
+    if (budget <= Duration.zero) {
+      throw ArgumentError.value(budget, 'budget', 'must be positive');
+    }
+
     _drainCancelled = false;
 
-    final token = await _accessTokenProvider();
+    final token = await _requiredAccessToken();
     final client = HttpClient();
     _drainClient = client;
     final deadline = DateTime.now().add(budget);
@@ -204,9 +217,27 @@ class CloudflareRelayClient implements MobileRelayClient {
       return;
     }
 
-    final decoded = jsonDecode(data);
+    Map<String, dynamic> decoded;
 
-    if (decoded is! Map<String, dynamic> || decoded['type'] != 'request') {
+    try {
+      final parsed = jsonDecode(data);
+
+      if (parsed is! Map<String, dynamic>) {
+        return;
+      }
+
+      decoded = parsed;
+    } on FormatException {
+      socket.add(
+        jsonEncode(<String, Object?>{
+          'type': 'protocol_error',
+          'code': 'invalid_json',
+        }),
+      );
+      return;
+    }
+
+    if (decoded['type'] != 'request') {
       return;
     }
 
@@ -236,6 +267,8 @@ class CloudflareRelayClient implements MobileRelayClient {
     required Uri localOrigin,
     required Map<String, dynamic> message,
   }) async {
+    _validateLocalOrigin(localOrigin);
+
     final requestId = message['request_id'] as String?;
     final method = (message['method'] as String? ?? 'GET').toUpperCase();
     final path = message['path'] as String? ?? '/';
@@ -256,7 +289,8 @@ class CloudflareRelayClient implements MobileRelayClient {
     if (pathUri == null ||
         !path.startsWith('/') ||
         pathUri.hasScheme ||
-        pathUri.hasAuthority) {
+        pathUri.hasAuthority ||
+        pathUri.hasFragment) {
       throw const FormatException('relay path must be origin-relative');
     }
 
@@ -366,6 +400,47 @@ class CloudflareRelayClient implements MobileRelayClient {
     return bytes;
   }
 
+  Future<String> _requiredAccessToken() async {
+    final token = (await _accessTokenProvider()).trim();
+
+    if (token.isEmpty) {
+      throw StateError('relay access token must not be empty');
+    }
+
+    return token;
+  }
+
+  void _validateLocalOrigin(Uri localOrigin) {
+    if (localOrigin.scheme != 'http' || localOrigin.port <= 0) {
+      throw ArgumentError.value(
+        localOrigin,
+        'localOrigin',
+        'must be a loopback HTTP origin with an explicit port',
+      );
+    }
+
+    final host = InternetAddress.tryParse(localOrigin.host);
+
+    if (host == null || !host.isLoopback) {
+      throw ArgumentError.value(
+        localOrigin,
+        'localOrigin',
+        'must target a loopback address',
+      );
+    }
+
+    if (localOrigin.userInfo.isNotEmpty ||
+        localOrigin.path.isNotEmpty && localOrigin.path != '/' ||
+        localOrigin.hasQuery ||
+        localOrigin.hasFragment) {
+      throw ArgumentError.value(
+        localOrigin,
+        'localOrigin',
+        'must be an origin URI without credentials, path, query, or fragment',
+      );
+    }
+  }
+
   bool _isHopByHopHeader(String name) {
     switch (name.toLowerCase()) {
       case 'connection':
@@ -389,13 +464,20 @@ class CloudflareRelayClient implements MobileRelayClient {
         ? '${base.path}$child'
         : '${base.path}/$child';
 
-    return base.replace(path: path);
+    return base.replace(path: path, query: null, fragment: null);
   }
 
   Uri _webSocketEndpoint(Uri base, String child) {
     final endpoint = _httpEndpoint(base, child);
-    final scheme = endpoint.scheme == 'https' ? 'wss' : 'ws';
 
-    return endpoint.replace(scheme: scheme);
+    if (endpoint.scheme != 'https') {
+      throw ArgumentError.value(
+        base,
+        'relayUrl',
+        'persistent relay sessions require HTTPS/WSS',
+      );
+    }
+
+    return endpoint.replace(scheme: 'wss');
   }
 }
