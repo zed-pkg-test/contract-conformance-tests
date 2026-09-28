@@ -22,6 +22,10 @@ impl RouteTarget {
     pub fn is_loopback(&self) -> bool {
         return self.host.is_loopback();
     }
+
+    pub fn is_valid_local_target(&self) -> bool {
+        return self.is_loopback() && self.port > 0;
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -65,12 +69,30 @@ pub enum RouteChange {
 pub enum ValidationError {
     #[error("product_id must not be empty")]
     EmptyProductId,
+    #[error("route_id must not be empty")]
+    EmptyRouteId,
+    #[error("route host must not be empty for route: {0}")]
+    EmptyRouteHost(String),
+    #[error("route path_prefix must start with '/' for route: {0}")]
+    InvalidPathPrefix(String),
     #[error("duplicate route_id: {0}")]
     DuplicateRoute(String),
-    #[error("route target must be loopback unless public exposure is explicitly delegated: {0}")]
-    NonLoopbackTarget(String),
-    #[error("service revision must be exact and non-empty: {0}")]
-    MissingRevision(String),
+    #[error("duplicate host/path route: {host}{path_prefix}")]
+    DuplicateRoutePattern { host: String, path_prefix: String },
+    #[error("route target must be loopback with a nonzero port: {0}")]
+    InvalidLocalRouteTarget(String),
+    #[error("service_id must not be empty")]
+    EmptyServiceId,
+    #[error("duplicate service_id: {0}")]
+    DuplicateService(String),
+    #[error("service revision must be immutable and non-empty: {0}")]
+    MutableRevision(String),
+    #[error("service digest must be SHA-256 when supplied: {0}")]
+    InvalidServiceDigest(String),
+    #[error("service command_id must not be empty: {0}")]
+    EmptyCommandId(String),
+    #[error("service health endpoint must be loopback with a nonzero port: {0}")]
+    InvalidHealthEndpoint(String),
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -104,24 +126,114 @@ pub fn validate_desired_state(state: &DesiredState) -> Result<(), ValidationErro
     }
 
     let mut route_ids = BTreeSet::new();
+    let mut route_patterns = BTreeSet::new();
 
     for route in &state.routes {
+        if route.route_id.trim().is_empty() {
+            return Err(ValidationError::EmptyRouteId);
+        }
+
+        if route.host.trim().is_empty() {
+            return Err(ValidationError::EmptyRouteHost(route.route_id.clone()));
+        }
+
+        if !route.path_prefix.starts_with('/') {
+            return Err(ValidationError::InvalidPathPrefix(route.route_id.clone()));
+        }
+
         if !route_ids.insert(route.route_id.clone()) {
             return Err(ValidationError::DuplicateRoute(route.route_id.clone()));
         }
 
-        if !route.public && !route.target.is_loopback() {
-            return Err(ValidationError::NonLoopbackTarget(route.route_id.clone()));
+        let pattern = (
+            route.host.to_ascii_lowercase(),
+            route.path_prefix.clone(),
+        );
+
+        if !route_patterns.insert(pattern.clone()) {
+            return Err(ValidationError::DuplicateRoutePattern {
+                host: pattern.0,
+                path_prefix: pattern.1,
+            });
+        }
+
+        // `public` describes whether ingress may expose the route; it never
+        // grants permission for the dynamic router to proxy arbitrary LAN/WAN
+        // targets. Product-specific container/VM networking must terminate at
+        // an admitted local loopback adapter before entering this route table.
+        if !route.target.is_valid_local_target() {
+            return Err(ValidationError::InvalidLocalRouteTarget(
+                route.route_id.clone(),
+            ));
         }
     }
 
+    let mut service_ids = BTreeSet::new();
+
     for service in &state.services {
-        if service.revision.trim().is_empty() || service.revision == "latest" {
-            return Err(ValidationError::MissingRevision(service.service_id.clone()));
+        if service.service_id.trim().is_empty() {
+            return Err(ValidationError::EmptyServiceId);
+        }
+
+        if !service_ids.insert(service.service_id.clone()) {
+            return Err(ValidationError::DuplicateService(
+                service.service_id.clone(),
+            ));
+        }
+
+        if is_mutable_revision(&service.revision) {
+            return Err(ValidationError::MutableRevision(
+                service.service_id.clone(),
+            ));
+        }
+
+        if let Some(digest) = &service.digest {
+            if !is_sha256(digest) {
+                return Err(ValidationError::InvalidServiceDigest(
+                    service.service_id.clone(),
+                ));
+            }
+        }
+
+        if service.command_id.trim().is_empty() {
+            return Err(ValidationError::EmptyCommandId(
+                service.service_id.clone(),
+            ));
+        }
+
+        if let Some(health_endpoint) = &service.health_endpoint {
+            if !health_endpoint.is_valid_local_target() {
+                return Err(ValidationError::InvalidHealthEndpoint(
+                    service.service_id.clone(),
+                ));
+            }
         }
     }
 
     return Ok(());
+}
+
+fn is_mutable_revision(revision: &str) -> bool {
+    let normalized = revision.trim().to_ascii_lowercase();
+
+    if normalized.is_empty() {
+        return true;
+    }
+
+    return matches!(
+        normalized.as_str(),
+        "latest" | "main" | "master" | "head" | "trunk" | "dev" | "develop" | "development"
+    );
+}
+
+fn is_sha256(value: &str) -> bool {
+    let value = value.strip_prefix("sha256:").unwrap_or(value);
+
+    if value.len() != 64 {
+        return false;
+    }
+
+    return value.bytes().all(|byte| byte.is_ascii_hexdigit());
 }
 
 pub fn desired_state_from_adapter<A: DesktopInfraAdapter>(adapter: &A) -> Result<DesiredState, AdapterError> {
@@ -209,7 +321,7 @@ mod tests {
     }
 
     #[test]
-    fn mutable_latest_revision_is_rejected() {
+    fn mutable_branch_revision_is_rejected() {
         let state = DesiredState {
             product_id: "scintilla".to_string(),
             generation: 1,
@@ -217,7 +329,7 @@ mod tests {
             routes: vec![],
             services: vec![ServiceSpec {
                 service_id: "ingress".to_string(),
-                revision: "latest".to_string(),
+                revision: "main".to_string(),
                 digest: None,
                 command_id: "ingress".to_string(),
                 health_endpoint: None,
@@ -228,7 +340,49 @@ mod tests {
 
         assert!(matches!(
             validate_desired_state(&state),
-            Err(ValidationError::MissingRevision(service_id)) if service_id == "ingress"
+            Err(ValidationError::MutableRevision(service_id)) if service_id == "ingress"
+        ));
+    }
+
+    #[test]
+    fn public_route_does_not_allow_non_loopback_target() {
+        let mut public_route = route("public", 8080);
+        public_route.public = true;
+        public_route.target.host = IpAddr::V4(Ipv4Addr::new(10, 0, 0, 5));
+        let state = DesiredState {
+            product_id: "scintilla".to_string(),
+            generation: 1,
+            route_authority: RouteAuthority::Erlang,
+            routes: vec![public_route],
+            services: vec![],
+            labels: BTreeMap::new(),
+        };
+
+        assert_eq!(
+            validate_desired_state(&state),
+            Err(ValidationError::InvalidLocalRouteTarget(
+                "public".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn duplicate_semantic_route_is_rejected_case_insensitively() {
+        let first = route("a", 8080);
+        let mut second = route("b", 8081);
+        second.host = "EXAMPLE.LOCAL".to_string();
+        let state = DesiredState {
+            product_id: "scintilla".to_string(),
+            generation: 1,
+            route_authority: RouteAuthority::Erlang,
+            routes: vec![first, second],
+            services: vec![],
+            labels: BTreeMap::new(),
+        };
+
+        assert!(matches!(
+            validate_desired_state(&state),
+            Err(ValidationError::DuplicateRoutePattern { .. })
         ));
     }
 
