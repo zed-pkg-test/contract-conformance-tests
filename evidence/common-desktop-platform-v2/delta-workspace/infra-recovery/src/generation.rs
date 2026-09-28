@@ -392,7 +392,9 @@ mod tests {
     fn staged_identity_can_activate_and_commit() {
         let mut state = GenerationState::new(identity(41, 'a')).expect("state should initialize");
 
-        state.stage(identity(42, 'b')).expect("identity should stage");
+        state
+            .stage(identity(42, 'b'))
+            .expect("identity should stage");
         state.activate_staged().expect("identity should activate");
 
         assert_eq!(state.active_identity, identity(42, 'b'));
