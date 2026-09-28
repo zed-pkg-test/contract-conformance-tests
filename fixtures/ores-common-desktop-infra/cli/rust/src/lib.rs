@@ -64,12 +64,22 @@ pub struct DeployRequest {
 }
 
 impl DeployRequest {
-    pub fn canonical(source: DeploySource) -> Self {
+    pub fn canonical(source: DeploySource, api_docs_revision: impl Into<String>) -> Self {
         return Self {
             source,
             compose_file: CANONICAL_COMPOSE_FILE.to_string(),
             route_discovery: RouteDiscoveryMode::ComposeAndBuildMetadata,
             docs_generation: DocsGenerationMode::ConsumerOwned,
+            api_docs_revision: Some(api_docs_revision.into()),
+        };
+    }
+
+    pub fn without_docs(source: DeploySource) -> Self {
+        return Self {
+            source,
+            compose_file: CANONICAL_COMPOSE_FILE.to_string(),
+            route_discovery: RouteDiscoveryMode::ComposeAndBuildMetadata,
+            docs_generation: DocsGenerationMode::Disabled,
             api_docs_revision: None,
         };
     }
@@ -85,28 +95,38 @@ impl DeployRequest {
             DeploySource::GitRepository {
                 repository,
                 revision,
-                ..
+                subdir,
             } => {
                 if repository.trim().is_empty() {
                     return Err(DeployRequestError::EmptyRepository);
                 }
 
-                if matches!(revision.as_deref(), Some("latest" | "main" | "master")) {
-                    return Err(DeployRequestError::MutableRevision(
-                        revision.clone().unwrap_or_default(),
-                    ));
+                let revision = revision
+                    .as_deref()
+                    .ok_or(DeployRequestError::MissingImmutableRevision)?;
+
+                if !is_full_git_object_id(revision) {
+                    return Err(DeployRequestError::MutableRevision(revision.to_string()));
+                }
+
+                if let Some(subdir) = subdir {
+                    validate_relative_subdir(subdir)?;
                 }
             }
             DeploySource::GitHubOrganization {
                 organization,
+                repository_filter,
                 revision,
-                ..
             } => {
                 if organization.trim().is_empty() {
                     return Err(DeployRequestError::EmptyOrganization);
                 }
 
-                if matches!(revision.as_deref(), Some("latest")) {
+                if matches!(repository_filter.as_deref(), Some("")) {
+                    return Err(DeployRequestError::EmptyRepositoryFilter);
+                }
+
+                if matches!(revision.as_deref(), Some("latest" | "main" | "master")) {
                     return Err(DeployRequestError::MutableRevision(
                         revision.clone().unwrap_or_default(),
                     ));
@@ -119,16 +139,58 @@ impl DeployRequest {
             }
         }
 
-        if self.docs_generation == DocsGenerationMode::ConsumerOwned {
-            if matches!(self.api_docs_revision.as_deref(), Some("latest" | "main" | "master")) {
-                return Err(DeployRequestError::MutableApiDocsRevision(
-                    self.api_docs_revision.clone().unwrap_or_default(),
-                ));
+        match self.docs_generation {
+            DocsGenerationMode::Disabled => {
+                if self.api_docs_revision.is_some() {
+                    return Err(DeployRequestError::UnexpectedApiDocsRevision);
+                }
+            }
+            DocsGenerationMode::ConsumerOwned => {
+                let revision = self
+                    .api_docs_revision
+                    .as_deref()
+                    .ok_or(DeployRequestError::MissingApiDocsRevision)?;
+
+                if !is_full_git_object_id(revision) {
+                    return Err(DeployRequestError::MutableApiDocsRevision(
+                        revision.to_string(),
+                    ));
+                }
             }
         }
 
         return Ok(());
     }
+}
+
+fn is_full_git_object_id(value: &str) -> bool {
+    let length = value.len();
+
+    if length != 40 && length != 64 {
+        return false;
+    }
+
+    return value.bytes().all(|byte| byte.is_ascii_hexdigit());
+}
+
+fn validate_relative_subdir(subdir: &str) -> Result<(), DeployRequestError> {
+    if subdir.trim().is_empty() {
+        return Err(DeployRequestError::InvalidSubdir(subdir.to_string()));
+    }
+
+    let path = std::path::Path::new(subdir);
+
+    if path.is_absolute() {
+        return Err(DeployRequestError::InvalidSubdir(subdir.to_string()));
+    }
+
+    for component in path.components() {
+        if matches!(component, std::path::Component::ParentDir | std::path::Component::RootDir | std::path::Component::Prefix(_)) {
+            return Err(DeployRequestError::InvalidSubdir(subdir.to_string()));
+        }
+    }
+
+    return Ok(());
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -168,14 +230,24 @@ pub enum DeployRequestError {
     EmptyRepository,
     #[error("organization must not be empty")]
     EmptyOrganization,
+    #[error("repository_filter must not be empty when supplied")]
+    EmptyRepositoryFilter,
     #[error("local folder must not be empty")]
     EmptyLocalFolder,
     #[error("unsupported ores-compose manifest name: {0}")]
     UnsupportedComposeFile(String),
-    #[error("deployment source must use an immutable revision when one is supplied: {0}")]
+    #[error("single-repository deployment requires a full immutable Git object id")]
+    MissingImmutableRevision,
+    #[error("deployment source must resolve to an immutable revision: {0}")]
     MutableRevision(String),
-    #[error("api-docs generation must pin an immutable api-docs revision: {0}")]
+    #[error("invalid repository subdirectory: {0}")]
+    InvalidSubdir(String),
+    #[error("consumer-owned api-docs generation requires a pinned revision")]
+    MissingApiDocsRevision,
+    #[error("api-docs generation must pin a full immutable Git object id: {0}")]
     MutableApiDocsRevision(String),
+    #[error("api_docs_revision must be absent when docs generation is disabled")]
+    UnexpectedApiDocsRevision,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -186,6 +258,8 @@ pub enum CliConfigError {
     NonLoopbackDaemon,
     #[error("token_file must be a filesystem path supplied by resolved runtime configuration")]
     MissingTokenFile,
+    #[error("token_file must be an absolute path")]
+    RelativeTokenFile,
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -229,6 +303,10 @@ impl ResolvedCliConfig {
 
         if self.token_file.as_os_str().is_empty() {
             return Err(CliConfigError::MissingTokenFile);
+        }
+
+        if !self.token_file.is_absolute() {
+            return Err(CliConfigError::RelativeTokenFile);
         }
 
         return Ok(());
@@ -282,6 +360,8 @@ pub fn deployment_request(
 mod tests {
     use super::*;
 
+    const PINNED_SHA: &str = "0123456789abcdef0123456789abcdef01234567";
+
     #[test]
     fn loopback_constructor_is_safe_by_default() {
         let config = ResolvedCliConfig::loopback(
@@ -296,11 +376,14 @@ mod tests {
 
     #[test]
     fn deployment_can_point_at_repo_with_compose_authority() {
-        let deploy = DeployRequest::canonical(DeploySource::GitRepository {
-            repository: "https://github.com/example/app".to_string(),
-            revision: Some("0123456789abcdef".to_string()),
-            subdir: None,
-        });
+        let deploy = DeployRequest::canonical(
+            DeploySource::GitRepository {
+                repository: "https://github.com/example/app".to_string(),
+                revision: Some(PINNED_SHA.to_string()),
+                subdir: None,
+            },
+            PINNED_SHA,
+        );
         let request = deployment_request("req-1", "scintilla", deploy)
             .expect("immutable deployment source should validate");
 
@@ -309,16 +392,54 @@ mod tests {
     }
 
     #[test]
-    fn mutable_latest_deployment_is_rejected() {
-        let deploy = DeployRequest::canonical(DeploySource::GitRepository {
-            repository: "https://github.com/example/app".to_string(),
-            revision: Some("latest".to_string()),
-            subdir: None,
-        });
+    fn branch_name_deployment_is_rejected() {
+        let deploy = DeployRequest::canonical(
+            DeploySource::GitRepository {
+                repository: "https://github.com/example/app".to_string(),
+                revision: Some("feature/not-immutable".to_string()),
+                subdir: None,
+            },
+            PINNED_SHA,
+        );
 
         assert!(matches!(
             deploy.validate(),
-            Err(DeployRequestError::MutableRevision(revision)) if revision == "latest"
+            Err(DeployRequestError::MutableRevision(_))
+        ));
+    }
+
+    #[test]
+    fn parent_directory_subdir_is_rejected() {
+        let deploy = DeployRequest::canonical(
+            DeploySource::GitRepository {
+                repository: "https://github.com/example/app".to_string(),
+                revision: Some(PINNED_SHA.to_string()),
+                subdir: Some("../other".to_string()),
+            },
+            PINNED_SHA,
+        );
+
+        assert!(matches!(
+            deploy.validate(),
+            Err(DeployRequestError::InvalidSubdir(_))
+        ));
+    }
+
+    #[test]
+    fn docs_require_immutable_api_docs_revision() {
+        let deploy = DeployRequest {
+            source: DeploySource::LocalFolder {
+                path: PathBuf::from("/work/app"),
+            },
+            compose_file: CANONICAL_COMPOSE_FILE.to_string(),
+            route_discovery: RouteDiscoveryMode::ComposeAndBuildMetadata,
+            docs_generation: DocsGenerationMode::ConsumerOwned,
+            api_docs_revision: Some("main".to_string()),
+        };
+
+        assert!(matches!(
+            deploy.validate(),
+            Err(DeployRequestError::MutableApiDocsRevision(_))
         ));
     }
 
