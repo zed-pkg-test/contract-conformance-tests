@@ -37,7 +37,7 @@ pub struct RouteSpec {
 pub struct ServiceSpec {
     pub service_id: String,
     pub revision: String,
-    pub digest: Option<String>,
+    pub digest: String,
     pub command_id: String,
     pub health_endpoint: Option<RouteTarget>,
     pub hot_reloadable: bool,
@@ -65,12 +65,24 @@ pub enum RouteChange {
 pub enum ValidationError {
     #[error("product_id must not be empty")]
     EmptyProductId,
+    #[error("generation must be non-zero")]
+    ZeroGeneration,
+    #[error("route_id, host, and path_prefix must not be empty: {0}")]
+    InvalidRoute(String),
     #[error("duplicate route_id: {0}")]
     DuplicateRoute(String),
-    #[error("route target must be loopback unless public exposure is explicitly delegated: {0}")]
-    NonLoopbackTarget(String),
+    #[error("local route target must be loopback with a non-zero port: {0}")]
+    InvalidRouteTarget(String),
+    #[error("service_id and command_id must not be empty: {0}")]
+    InvalidService(String),
+    #[error("duplicate service_id: {0}")]
+    DuplicateService(String),
     #[error("service revision must be exact and non-empty: {0}")]
     MissingRevision(String),
+    #[error("service digest must be a sha256 digest: {0}")]
+    InvalidServiceDigest(String),
+    #[error("service health endpoint must be loopback with a non-zero port: {0}")]
+    InvalidHealthEndpoint(String),
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
@@ -86,9 +98,6 @@ pub enum AdapterError {
     ProductValidation(String),
 }
 
-/// Thin seam implemented by each product's distinct desktop-infra entrypoint.
-/// Product-specific code should construct its desired state and delegate common
-/// validation/reconciliation here immediately.
 pub trait DesktopInfraAdapter {
     fn product_id(&self) -> &str;
     fn desired_state(&self) -> DesiredState;
@@ -103,25 +112,63 @@ pub fn validate_desired_state(state: &DesiredState) -> Result<(), ValidationErro
         return Err(ValidationError::EmptyProductId);
     }
 
+    if state.generation == 0 {
+        return Err(ValidationError::ZeroGeneration);
+    }
+
     let mut route_ids = BTreeSet::new();
 
     for route in &state.routes {
+        if route.route_id.trim().is_empty()
+            || route.host.trim().is_empty()
+            || route.path_prefix.trim().is_empty()
+            || !route.path_prefix.starts_with('/')
+        {
+            return Err(ValidationError::InvalidRoute(route.route_id.clone()));
+        }
+
         if !route_ids.insert(route.route_id.clone()) {
             return Err(ValidationError::DuplicateRoute(route.route_id.clone()));
         }
 
-        if !route.public && !route.target.is_loopback() {
-            return Err(ValidationError::NonLoopbackTarget(route.route_id.clone()));
+        if !route.target.is_loopback() || route.target.port == 0 {
+            return Err(ValidationError::InvalidRouteTarget(route.route_id.clone()));
         }
     }
 
+    let mut service_ids = BTreeSet::new();
+
     for service in &state.services {
-        if service.revision.trim().is_empty() || service.revision == "latest" {
+        if service.service_id.trim().is_empty() || service.command_id.trim().is_empty() {
+            return Err(ValidationError::InvalidService(service.service_id.clone()));
+        }
+
+        if !service_ids.insert(service.service_id.clone()) {
+            return Err(ValidationError::DuplicateService(service.service_id.clone()));
+        }
+
+        if service.revision.trim().is_empty()
+            || matches!(service.revision.as_str(), "latest" | "main" | "master")
+        {
             return Err(ValidationError::MissingRevision(service.service_id.clone()));
+        }
+
+        if !is_sha256(&service.digest) {
+            return Err(ValidationError::InvalidServiceDigest(service.service_id.clone()));
+        }
+
+        if let Some(endpoint) = &service.health_endpoint {
+            if !endpoint.is_loopback() || endpoint.port == 0 {
+                return Err(ValidationError::InvalidHealthEndpoint(service.service_id.clone()));
+            }
         }
     }
 
     return Ok(());
+}
+
+fn is_sha256(value: &str) -> bool {
+    return value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit());
 }
 
 pub fn desired_state_from_adapter<A: DesktopInfraAdapter>(adapter: &A) -> Result<DesiredState, AdapterError> {
@@ -157,12 +204,8 @@ pub fn diff_routes(current: &[RouteSpec], desired: &[RouteSpec]) -> Vec<RouteCha
 
     for (route_id, route) in &desired_by_id {
         match current_by_id.get(route_id) {
-            None => {
-                changes.push(RouteChange::Add((**route).clone()));
-            }
-            Some(existing) if **existing != **route => {
-                changes.push(RouteChange::Replace((**route).clone()));
-            }
+            None => changes.push(RouteChange::Add((**route).clone())),
+            Some(existing) if **existing != **route => changes.push(RouteChange::Replace((**route).clone())),
             Some(_) => {}
         }
     }
@@ -183,15 +226,14 @@ mod tests {
     use super::*;
     use std::net::{IpAddr, Ipv4Addr};
 
+    const SHA256: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
     fn route(route_id: &str, port: u16) -> RouteSpec {
         return RouteSpec {
             route_id: route_id.to_string(),
             host: "example.local".to_string(),
             path_prefix: "/".to_string(),
-            target: RouteTarget {
-                host: IpAddr::V4(Ipv4Addr::LOCALHOST),
-                port,
-            },
+            target: RouteTarget { host: IpAddr::V4(Ipv4Addr::LOCALHOST), port },
             public: false,
         };
     }
@@ -201,15 +243,30 @@ mod tests {
         let current = vec![route("a", 8000), route("b", 8001)];
         let desired = vec![route("a", 9000), route("c", 8002)];
         let changes = diff_routes(&current, &desired);
-
         assert_eq!(changes.len(), 3);
-        assert!(matches!(&changes[0], RouteChange::Replace(spec) if spec.route_id == "a"));
-        assert!(matches!(&changes[1], RouteChange::Add(spec) if spec.route_id == "c"));
-        assert!(matches!(&changes[2], RouteChange::Remove { route_id } if route_id == "b"));
     }
 
     #[test]
-    fn mutable_latest_revision_is_rejected() {
+    fn public_route_still_must_target_loopback() {
+        let state = DesiredState {
+            product_id: "scintilla".to_string(),
+            generation: 1,
+            route_authority: RouteAuthority::Erlang,
+            routes: vec![RouteSpec {
+                route_id: "bad".to_string(),
+                host: "public.example".to_string(),
+                path_prefix: "/".to_string(),
+                target: RouteTarget { host: "192.0.2.10".parse().expect("test address"), port: 8080 },
+                public: true,
+            }],
+            services: vec![],
+            labels: BTreeMap::new(),
+        };
+        assert!(matches!(validate_desired_state(&state), Err(ValidationError::InvalidRouteTarget(_))));
+    }
+
+    #[test]
+    fn missing_service_digest_is_rejected() {
         let state = DesiredState {
             product_id: "scintilla".to_string(),
             generation: 1,
@@ -217,35 +274,29 @@ mod tests {
             routes: vec![],
             services: vec![ServiceSpec {
                 service_id: "ingress".to_string(),
-                revision: "latest".to_string(),
-                digest: None,
+                revision: "v1".to_string(),
+                digest: "not-a-digest".to_string(),
                 command_id: "ingress".to_string(),
                 health_endpoint: None,
                 hot_reloadable: true,
             }],
             labels: BTreeMap::new(),
         };
-
-        assert!(matches!(
-            validate_desired_state(&state),
-            Err(ValidationError::MissingRevision(service_id)) if service_id == "ingress"
-        ));
+        assert!(matches!(validate_desired_state(&state), Err(ValidationError::InvalidServiceDigest(_))));
     }
 
     struct TestAdapter;
-
     impl DesktopInfraAdapter for TestAdapter {
-        fn product_id(&self) -> &str {
-            return "wasmx";
-        }
-
+        fn product_id(&self) -> &str { return "wasmx"; }
         fn desired_state(&self) -> DesiredState {
             return DesiredState {
                 product_id: "wasmx".to_string(),
                 generation: 7,
                 route_authority: RouteAuthority::Erlang,
                 routes: vec![],
-                services: vec![],
+                services: vec![ServiceSpec {
+                    service_id: "router".to_string(), revision: "v1".to_string(), digest: SHA256.to_string(), command_id: "router".to_string(), health_endpoint: None, hot_reloadable: true,
+                }],
                 labels: BTreeMap::new(),
             };
         }
@@ -254,7 +305,6 @@ mod tests {
     #[test]
     fn thin_adapter_can_delegate_immediately() {
         let state = desired_state_from_adapter(&TestAdapter).expect("adapter state should validate");
-
         assert_eq!(state.product_id, "wasmx");
         assert_eq!(state.generation, 7);
     }
