@@ -1,0 +1,170 @@
+diff --git a/desktop-app/rust/src/lib.rs b/desktop-app/rust/src/lib.rs
+--- a/desktop-app/rust/src/lib.rs
++++ b/desktop-app/rust/src/lib.rs
+@@ -1,5 +1,5 @@
+ use ores_common_desktop_cli::{
+-    config_from_adapter, deployment_request, request, ControlResponse, ControlTransport,
++    config_from_adapter, deployment_request, request, ControlRequest, ControlResponse, ControlTransport,
+     DeployRequest, LifecycleCommand, ProductCliAdapter,
+ };
+ use ores_common_desktop_daemon::{DeploymentStage, DeviceCapabilities, UpdateStage};
+@@ -49,10 +49,14 @@ pub trait ProductDesktopAppAdapter: ProductCliAdapter {
+ pub enum DesktopAppError {
+     #[error("desktop app configuration failed: {0}")]
+     Config(String),
++    #[error("desktop app request_id must not be empty")]
++    EmptyRequestId,
+     #[error("desktop app deploy request is invalid: {0}")]
+     InvalidDeploy(String),
+     #[error("desktop app daemon request failed: {0}")]
+     Transport(String),
++    #[error("daemon response request_id mismatch: expected {expected}, got {actual}")]
++    ResponseRequestIdMismatch { expected: String, actual: String },
+     #[error("daemon rejected request: {0}")]
+     Rejected(String),
+ }
+@@ -67,21 +71,17 @@ where
+     A: ProductDesktopAppAdapter,
+     T: ControlTransport,
+ {
++    let request_id = request_id.into();
++    validate_request_id(&request_id)?;
++
+     let config = config_from_adapter(adapter)
+         .map_err(|error| DesktopAppError::Config(error.to_string()))?;
+     let control_request = request(request_id, adapter.product_id(), command);
+     let response = transport
+         .send(&config, &control_request)
+         .map_err(DesktopAppError::Transport)?;
+ 
+-    if !response.accepted {
+-        return Err(DesktopAppError::Rejected(
+-            response
+-                .message
+-                .clone()
+-                .unwrap_or_else(|| "daemon rejected request".to_string()),
+-        ));
+-    }
++    validate_response(&control_request, &response)?;
+ 
+     return Ok(response);
+ }
+@@ -96,6 +96,9 @@ where
+     A: ProductDesktopAppAdapter,
+     T: ControlTransport,
+ {
++    let request_id = request_id.into();
++    validate_request_id(&request_id)?;
++
+     let config = config_from_adapter(adapter)
+         .map_err(|error| DesktopAppError::Config(error.to_string()))?;
+     let control_request = deployment_request(request_id, adapter.product_id(), deploy)
+@@ -104,22 +107,46 @@ where
+         .send(&config, &control_request)
+         .map_err(DesktopAppError::Transport)?;
+ 
++    validate_response(&control_request, &response)?;
++
++    return Ok(response);
++}
++
++fn validate_request_id(request_id: &str) -> Result<(), DesktopAppError> {
++    if request_id.trim().is_empty() {
++        return Err(DesktopAppError::EmptyRequestId);
++    }
++
++    return Ok(());
++}
++
++fn validate_response(
++    request: &ControlRequest,
++    response: &ControlResponse,
++) -> Result<(), DesktopAppError> {
++    if response.request_id != request.request_id {
++        return Err(DesktopAppError::ResponseRequestIdMismatch {
++            expected: request.request_id.clone(),
++            actual: response.request_id.clone(),
++        });
++    }
++
+     if !response.accepted {
+         return Err(DesktopAppError::Rejected(
+             response
+                 .message
+                 .clone()
+-                .unwrap_or_else(|| "daemon rejected deployment".to_string()),
++                .unwrap_or_else(|| "daemon rejected request".to_string()),
+         ));
+     }
+ 
+-    return Ok(response);
++    return Ok(());
+ }
+ 
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+-    use ores_common_desktop_cli::{ControlRequest, DeploySource, ResolvedCliConfig};
++    use ores_common_desktop_cli::{DeploySource, ResolvedCliConfig};
+     use std::path::PathBuf;
+ 
+     struct TestApp;
+@@ -162,6 +189,23 @@ mod tests {
+         }
+     }
+ 
++    struct MismatchedTransport;
++
++    impl ControlTransport for MismatchedTransport {
++        fn send(
++            &self,
++            _config: &ResolvedCliConfig,
++            _request: &ControlRequest,
++        ) -> Result<ControlResponse, String> {
++            return Ok(ControlResponse {
++                request_id: "different-request".to_string(),
++                accepted: true,
++                generation: Some(4),
++                message: None,
++            });
++        }
++    }
++
+     #[test]
+     fn product_desktop_app_delegates_to_shared_control_protocol() {
+         let response = send_lifecycle_command(
+@@ -190,4 +234,34 @@ mod tests {
+ 
+         assert_eq!(response.generation, Some(4));
+     }
++
++    #[test]
++    fn mismatched_daemon_response_is_rejected() {
++        let result = send_lifecycle_command(
++            &TestApp,
++            &MismatchedTransport,
++            "request-1",
++            LifecycleCommand::Status,
++        );
++
++        assert_eq!(
++            result,
++            Err(DesktopAppError::ResponseRequestIdMismatch {
++                expected: "request-1".to_string(),
++                actual: "different-request".to_string(),
++            })
++        );
++    }
++
++    #[test]
++    fn empty_request_id_is_rejected_before_transport() {
++        let result = send_lifecycle_command(
++            &TestApp,
++            &TestTransport,
++            "  ",
++            LifecycleCommand::Status,
++        );
++
++        assert_eq!(result, Err(DesktopAppError::EmptyRequestId));
++    }
+ }
