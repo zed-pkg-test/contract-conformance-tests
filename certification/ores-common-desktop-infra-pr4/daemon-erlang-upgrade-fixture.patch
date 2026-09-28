@@ -1,0 +1,40 @@
+diff --git a/daemon/erlang/test/ores_common_desktop_upgrade_fixture.erl b/daemon/erlang/test/ores_common_desktop_upgrade_fixture.erl
+new file mode 100644
+--- /dev/null
++++ b/daemon/erlang/test/ores_common_desktop_upgrade_fixture.erl
+@@ -0,0 +1,35 @@
++-module(ores_common_desktop_upgrade_fixture).
++-behaviour(gen_server).
++
++-export([start_link/0, state/1]).
++-export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
++
++start_link() ->
++    gen_server:start_link(?MODULE, [], []).
++
++state(Pid) ->
++    gen_server:call(Pid, state).
++
++init([]) ->
++    {ok, #{value => 1}}.
++
++handle_call(state, _From, State) ->
++    {reply, State, State};
++handle_call(_Request, _From, State) ->
++    {reply, {error, unsupported_request}, State}.
++
++handle_cast(_Message, State) ->
++    {noreply, State}.
++
++handle_info(_Message, State) ->
++    {noreply, State}.
++
++terminate(_Reason, _State) ->
++    ok.
++
++code_change(_OldVersion, _State, fail) ->
++    {error, forced_code_change_failure};
++code_change(_OldVersion, State, succeed) ->
++    {ok, State#{upgraded => true}};
++code_change(_OldVersion, State, _Extra) ->
++    {ok, State}.
