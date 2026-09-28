@@ -411,7 +411,9 @@ class CloudflareRelayClient implements MobileRelayClient {
   }
 
   void _validateLocalOrigin(Uri localOrigin) {
-    if (localOrigin.scheme != 'http' || localOrigin.port <= 0) {
+    if (localOrigin.scheme != 'http' ||
+        !localOrigin.hasPort ||
+        localOrigin.port <= 0) {
       throw ArgumentError.value(
         localOrigin,
         'localOrigin',
