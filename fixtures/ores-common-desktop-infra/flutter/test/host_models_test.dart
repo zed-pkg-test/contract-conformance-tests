@@ -2,7 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:ores_common_mobile_host/ores_common_mobile_host.dart';
 
 void main() {
-  test('mobile host config accepts one valid loopback origin port', () {
+  test('mobile host config accepts a valid encrypted relay', () {
     final config = MobileHostConfig(
       productId: 'scintilla',
       deviceId: 'device-1',
@@ -21,6 +21,30 @@ void main() {
       originPort: 70000,
       mode: MobileHostingMode.wakeAndDrain,
       relayUrl: Uri.parse('https://relay.example.com/device'),
+    );
+
+    expect(config.validate, throwsArgumentError);
+  });
+
+  test('plaintext relay endpoints are rejected', () {
+    final config = MobileHostConfig(
+      productId: 'scintilla',
+      deviceId: 'device-3',
+      originPort: 18080,
+      mode: MobileHostingMode.persistentOrigin,
+      relayUrl: Uri.parse('http://relay.example.com/device'),
+    );
+
+    expect(config.validate, throwsArgumentError);
+  });
+
+  test('relay URLs with embedded credentials are rejected', () {
+    final config = MobileHostConfig(
+      productId: 'scintilla',
+      deviceId: 'device-4',
+      originPort: 18080,
+      mode: MobileHostingMode.persistentOrigin,
+      relayUrl: Uri.parse('https://user:pass@relay.example.com/device'),
     );
 
     expect(config.validate, throwsArgumentError);
