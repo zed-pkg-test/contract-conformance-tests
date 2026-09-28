@@ -1,0 +1,102 @@
+diff --git a/flutter/lib/src/host_models.dart b/flutter/lib/src/host_models.dart
+--- a/flutter/lib/src/host_models.dart
++++ b/flutter/lib/src/host_models.dart
+@@ -28,13 +28,19 @@ class MobileHostCapabilities {
+   const MobileHostCapabilities({
+     required this.platform,
+     required this.supportsPersistentOrigin,
++    required this.persistentRuntimeReady,
++    required this.persistentRuntimeManagedByService,
++    required this.supportsForegroundKeepalive,
+     required this.supportsWakeAndDrain,
+     required this.supportsBackgroundPush,
+     required this.minimumRepairWakeMinutes,
+   });
+ 
+   final String platform;
+   final bool supportsPersistentOrigin;
++  final bool persistentRuntimeReady;
++  final bool persistentRuntimeManagedByService;
++  final bool supportsForegroundKeepalive;
+   final bool supportsWakeAndDrain;
+   final bool supportsBackgroundPush;
+   final int? minimumRepairWakeMinutes;
+@@ -43,6 +49,11 @@ class MobileHostCapabilities {
+     return MobileHostCapabilities(
+       platform: map['platform'] as String? ?? 'unknown',
+       supportsPersistentOrigin: map['supports_persistent_origin'] as bool? ?? false,
++      persistentRuntimeReady: map['persistent_runtime_ready'] as bool? ?? false,
++      persistentRuntimeManagedByService:
++          map['persistent_runtime_managed_by_service'] as bool? ?? false,
++      supportsForegroundKeepalive:
++          map['supports_foreground_keepalive'] as bool? ?? false,
+       supportsWakeAndDrain: map['supports_wake_and_drain'] as bool? ?? false,
+       supportsBackgroundPush: map['supports_background_push'] as bool? ?? false,
+       minimumRepairWakeMinutes: map['minimum_repair_wake_minutes'] as int?,
+@@ -66,13 +77,8 @@ class MobileHostConfig {
+   final Uri relayUrl;
+ 
+   void validate() {
+-    if (productId.trim().isEmpty) {
+-      throw ArgumentError.value(productId, 'productId', 'must not be empty');
+-    }
+-
+-    if (deviceId.trim().isEmpty) {
+-      throw ArgumentError.value(deviceId, 'deviceId', 'must not be empty');
+-    }
++    _validateIdentifier(productId, 'productId');
++    _validateIdentifier(deviceId, 'deviceId');
+ 
+     if (originPort <= 0 || originPort > 65535) {
+       throw ArgumentError.value(originPort, 'originPort', 'must be a valid TCP port');
+@@ -81,6 +87,51 @@ class MobileHostConfig {
+     if (!relayUrl.hasScheme || relayUrl.host.isEmpty) {
+       throw ArgumentError.value(relayUrl, 'relayUrl', 'must be an absolute URI');
+     }
++
++    if (relayUrl.hasFragment || relayUrl.hasQuery || relayUrl.userInfo.isNotEmpty) {
++      throw ArgumentError.value(
++        relayUrl,
++        'relayUrl',
++        'must not contain credentials, query parameters, or a fragment',
++      );
++    }
++
++    final scheme = relayUrl.scheme.toLowerCase();
++    final isLoopback = _isLoopbackHost(relayUrl.host);
++
++    if (scheme != 'https' && !(scheme == 'http' && isLoopback)) {
++      throw ArgumentError.value(
++        relayUrl,
++        'relayUrl',
++        'must use https except for an explicit loopback development relay',
++      );
++    }
++  }
++
++  void _validateIdentifier(String value, String name) {
++    if (value.trim().isEmpty || value.length > 128) {
++      throw ArgumentError.value(
++        value,
++        name,
++        'must contain between 1 and 128 characters',
++      );
++    }
++
++    if (value.codeUnits.any((unit) => unit < 0x21 || unit == 0x7f)) {
++      throw ArgumentError.value(
++        value,
++        name,
++        'must not contain whitespace or control characters',
++      );
++    }
++  }
++
++  bool _isLoopbackHost(String host) {
++    final normalized = host.toLowerCase();
++
++    return normalized == 'localhost' ||
++        normalized == '127.0.0.1' ||
++        normalized == '::1';
+   }
+ }
