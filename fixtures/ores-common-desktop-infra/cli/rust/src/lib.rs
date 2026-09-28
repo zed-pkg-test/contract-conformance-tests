@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use thiserror::Error;
 
 pub const CANONICAL_COMPOSE_FILE: &str = ".ores-compose.yaml";
@@ -85,32 +85,34 @@ impl DeployRequest {
             DeploySource::GitRepository {
                 repository,
                 revision,
-                ..
+                subdir,
             } => {
                 if repository.trim().is_empty() {
                     return Err(DeployRequestError::EmptyRepository);
                 }
 
-                if matches!(revision.as_deref(), Some("latest" | "main" | "master")) {
-                    return Err(DeployRequestError::MutableRevision(
-                        revision.clone().unwrap_or_default(),
-                    ));
+                validate_optional_git_revision(revision)?;
+
+                if let Some(subdir) = subdir {
+                    if !is_safe_relative_subdir(subdir) {
+                        return Err(DeployRequestError::UnsafeRepositorySubdir(subdir.clone()));
+                    }
                 }
             }
             DeploySource::GitHubOrganization {
                 organization,
+                repository_filter,
                 revision,
-                ..
             } => {
                 if organization.trim().is_empty() {
                     return Err(DeployRequestError::EmptyOrganization);
                 }
 
-                if matches!(revision.as_deref(), Some("latest")) {
-                    return Err(DeployRequestError::MutableRevision(
-                        revision.clone().unwrap_or_default(),
-                    ));
+                if matches!(repository_filter.as_deref(), Some("")) {
+                    return Err(DeployRequestError::EmptyRepositoryFilter);
                 }
+
+                validate_optional_git_revision(revision)?;
             }
             DeploySource::LocalFolder { path } => {
                 if path.as_os_str().is_empty() {
@@ -120,15 +122,56 @@ impl DeployRequest {
         }
 
         if self.docs_generation == DocsGenerationMode::ConsumerOwned {
-            if matches!(self.api_docs_revision.as_deref(), Some("latest" | "main" | "master")) {
-                return Err(DeployRequestError::MutableApiDocsRevision(
-                    self.api_docs_revision.clone().unwrap_or_default(),
-                ));
+            if let Some(revision) = &self.api_docs_revision {
+                if !is_git_object_id(revision) {
+                    return Err(DeployRequestError::MutableApiDocsRevision(
+                        revision.clone(),
+                    ));
+                }
             }
         }
 
         return Ok(());
     }
+}
+
+fn validate_optional_git_revision(revision: &Option<String>) -> Result<(), DeployRequestError> {
+    if let Some(revision) = revision {
+        if !is_git_object_id(revision) {
+            return Err(DeployRequestError::MutableRevision(revision.clone()));
+        }
+    }
+
+    return Ok(());
+}
+
+fn is_git_object_id(revision: &str) -> bool {
+    let revision = revision.trim();
+
+    if revision.len() != 40 && revision.len() != 64 {
+        return false;
+    }
+
+    return revision.bytes().all(|byte| byte.is_ascii_hexdigit());
+}
+
+fn is_safe_relative_subdir(subdir: &str) -> bool {
+    let path = Path::new(subdir);
+
+    if subdir.trim().is_empty() || path.is_absolute() {
+        return false;
+    }
+
+    for component in path.components() {
+        match component {
+            Component::Normal(_) | Component::CurDir => {}
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                return false;
+            }
+        }
+    }
+
+    return true;
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -168,13 +211,17 @@ pub enum DeployRequestError {
     EmptyRepository,
     #[error("organization must not be empty")]
     EmptyOrganization,
+    #[error("repository_filter must not be empty when supplied")]
+    EmptyRepositoryFilter,
     #[error("local folder must not be empty")]
     EmptyLocalFolder,
+    #[error("repository subdir must stay within the selected repository: {0}")]
+    UnsafeRepositorySubdir(String),
     #[error("unsupported ores-compose manifest name: {0}")]
     UnsupportedComposeFile(String),
-    #[error("deployment source must use an immutable revision when one is supplied: {0}")]
+    #[error("deployment source revision must be an immutable Git object ID when supplied: {0}")]
     MutableRevision(String),
-    #[error("api-docs generation must pin an immutable api-docs revision: {0}")]
+    #[error("api-docs generation must pin an immutable Git object ID: {0}")]
     MutableApiDocsRevision(String),
 }
 
@@ -282,6 +329,10 @@ pub fn deployment_request(
 mod tests {
     use super::*;
 
+    fn git_sha(character: char) -> String {
+        return character.to_string().repeat(40);
+    }
+
     #[test]
     fn loopback_constructor_is_safe_by_default() {
         let config = ResolvedCliConfig::loopback(
@@ -298,8 +349,8 @@ mod tests {
     fn deployment_can_point_at_repo_with_compose_authority() {
         let deploy = DeployRequest::canonical(DeploySource::GitRepository {
             repository: "https://github.com/example/app".to_string(),
-            revision: Some("0123456789abcdef".to_string()),
-            subdir: None,
+            revision: Some(git_sha('1')),
+            subdir: Some("services/api".to_string()),
         });
         let request = deployment_request("req-1", "scintilla", deploy)
             .expect("immutable deployment source should validate");
@@ -309,16 +360,54 @@ mod tests {
     }
 
     #[test]
-    fn mutable_latest_deployment_is_rejected() {
+    fn omitted_remote_revision_can_be_resolved_and_pinned_by_daemon() {
         let deploy = DeployRequest::canonical(DeploySource::GitRepository {
             repository: "https://github.com/example/app".to_string(),
-            revision: Some("latest".to_string()),
+            revision: None,
+            subdir: None,
+        });
+
+        assert_eq!(deploy.validate(), Ok(()));
+    }
+
+    #[test]
+    fn mutable_branch_revision_is_rejected_when_supplied() {
+        let deploy = DeployRequest::canonical(DeploySource::GitRepository {
+            repository: "https://github.com/example/app".to_string(),
+            revision: Some("main".to_string()),
             subdir: None,
         });
 
         assert!(matches!(
             deploy.validate(),
-            Err(DeployRequestError::MutableRevision(revision)) if revision == "latest"
+            Err(DeployRequestError::MutableRevision(revision)) if revision == "main"
+        ));
+    }
+
+    #[test]
+    fn repository_subdir_cannot_escape_checkout() {
+        let deploy = DeployRequest::canonical(DeploySource::GitRepository {
+            repository: "https://github.com/example/app".to_string(),
+            revision: Some(git_sha('2')),
+            subdir: Some("../secrets".to_string()),
+        });
+
+        assert!(matches!(
+            deploy.validate(),
+            Err(DeployRequestError::UnsafeRepositorySubdir(subdir)) if subdir == "../secrets"
+        ));
+    }
+
+    #[test]
+    fn api_docs_revision_must_be_git_object_id_when_explicit() {
+        let mut deploy = DeployRequest::canonical(DeploySource::LocalFolder {
+            path: PathBuf::from("/work/app"),
+        });
+        deploy.api_docs_revision = Some("v1.0.0".to_string());
+
+        assert!(matches!(
+            deploy.validate(),
+            Err(DeployRequestError::MutableApiDocsRevision(revision)) if revision == "v1.0.0"
         ));
     }
 
