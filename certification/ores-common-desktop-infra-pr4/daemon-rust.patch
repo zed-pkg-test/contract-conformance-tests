@@ -1,0 +1,698 @@
+diff --git a/daemon/rust/src/lib.rs b/daemon/rust/src/lib.rs
+--- a/daemon/rust/src/lib.rs
++++ b/daemon/rust/src/lib.rs
+@@ -48,8 +48,9 @@ pub enum DeploymentStage {
+     ContractsDiscovered,
+     DocsGenerated,
+     WorkersStaged,
++    WorkersHealthy,
+     RoutesPrepared,
+-    Activated,
++    RoutesCommitted,
+     OldGenerationDraining,
+     Committed,
+     RollingBack,
+@@ -71,11 +72,26 @@ pub struct WorkerDeployment {
+     pub activation: WorkerActivation,
+ }
+ 
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub struct ResolvedSourceMember {
++    pub locator: String,
++    pub revision: String,
++    pub content_sha256: String,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
++pub struct ResolvedDeploymentSource {
++    pub members: Vec<ResolvedSourceMember>,
++    pub compose_sha256: String,
++    pub admission_sha256: String,
++}
++
+ #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+ pub struct DocsArtifactPlan {
+     pub api_docs_revision: String,
+     pub publication_mode: String,
+     pub semantic_contract_sha256: String,
++    pub route_catalog_sha256: String,
+     pub output_dir: PathBuf,
+ }
+ 
+@@ -84,6 +100,9 @@ pub struct DeploymentPlan {
+     pub deployment_id: String,
+     pub product_id: String,
+     pub generation: u64,
++    pub previous_generation: Option<u64>,
++    pub source: ResolvedDeploymentSource,
++    pub route_catalog_sha256: String,
+     pub workers: Vec<WorkerDeployment>,
+     pub route_changes: Vec<RouteChange>,
+     pub docs: Option<DocsArtifactPlan>,
+@@ -148,6 +167,9 @@ pub struct DaemonPolicy {
+     pub allowed_transitions: BTreeSet<Transition>,
+ }
+ 
++/// This principal is accepted only after the product's shared-auth adapter has
++/// cryptographically verified issuer, audience, expiry, signature, and device
++/// binding. This shared crate intentionally never accepts a raw bearer token.
+ #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+ pub struct AuthenticatedPrincipal {
+     pub subject: String,
+@@ -188,41 +210,49 @@ pub struct TelemetryEvent {
+     pub deployment_stage: Option<DeploymentStage>,
+ }
+ 
+-/// Implement this with the product's `ores-otel` adapter. Shared code emits
+-/// stable ORES event names; product entrypoints attach service/resource fields.
+ pub trait TelemetrySink: Send + Sync {
+     fn emit(&self, event: TelemetryEvent);
+ }
+ 
+-/// Thin seam implemented by each distinct product desktop-daemon entrypoint.
+-/// The entrypoint resolves product flags/auth/telemetry, then delegates named
+-/// transitions here rather than recreating the common policy loop.
+ pub trait ProductDaemonAdapter {
+     fn product_id(&self) -> &str;
+     fn apply_transition(&self, transition: &Transition, desired_state: &DesiredState) -> Result<(), String>;
+ }
+ 
+-/// Product-specific source/materialization logic lives behind this seam. The
+-/// shared daemon owns admission, zero-appliance-restart policy, route commit
+-/// ordering, telemetry vocabulary, and shared-auth authorization.
++/// Product-specific materialization and runtime operations stay behind this
++/// seam, but the shared daemon owns the transaction ordering. Implementations
++/// must make rollback idempotent because failures can occur after routes move.
+ pub trait ProductDeploymentAdapter {
+     fn product_id(&self) -> &str;
+     fn plan_deployment(&self, request: &DeployRequest, generation: u64) -> Result<DeploymentPlan, String>;
+-    fn activate_deployment(&self, plan: &DeploymentPlan) -> Result<(), String>;
++    fn generate_and_verify_docs(&self, plan: &DeploymentPlan) -> Result<(), String>;
++    fn stage_workers(&self, plan: &DeploymentPlan) -> Result<(), String>;
++    fn health_check_workers(&self, plan: &DeploymentPlan) -> Result<(), String>;
++    fn prepare_routes(&self, plan: &DeploymentPlan) -> Result<(), String>;
++    fn commit_routes(&self, plan: &DeploymentPlan) -> Result<(), String>;
++    fn drain_previous_generation(&self, plan: &DeploymentPlan) -> Result<(), String>;
++    fn commit_deployment(&self, plan: &DeploymentPlan) -> Result<(), String>;
++    fn rollback_deployment(&self, plan: &DeploymentPlan, failed_stage: &DeploymentStage) -> Result<(), String>;
+ }
+ 
+ #[derive(Debug, Error, PartialEq, Eq)]
+ pub enum PolicyError {
++    #[error("product_id must not be empty")]
++    EmptyProductId,
+     #[error("daemon must bind to loopback by default")]
+     NonLoopbackBind,
+     #[error("token_file is required")]
+     MissingTokenFile,
+     #[error("auth issuer is required")]
+     MissingAuthIssuer,
++    #[error("authenticated principal subject must not be empty")]
++    EmptyPrincipalSubject,
+     #[error("transition is not allowed by daemon policy: {0:?}")]
+     TransitionDenied(Transition),
+     #[error("update component must use an exact non-empty revision: {0}")]
+     MutableRevision(String),
++    #[error("update digest must be SHA-256 for component: {0}")]
++    InvalidUpdateDigest(String),
+     #[error("principal is missing required scope: {0}")]
+     MissingScope(String),
+     #[error("product identity mismatch: expected {expected}, got {actual}")]
+@@ -233,19 +263,45 @@ pub enum PolicyError {
+     InvalidDeployRequest(String),
+     #[error("product deployment planning failed: {0}")]
+     DeploymentPlanning(String),
+-    #[error("product deployment activation failed: {0}")]
+-    DeploymentActivation(String),
+     #[error("ordinary application deployment must not restart the complete desktop appliance")]
+     UnexpectedApplianceRestart,
++    #[error("deployment ID must not be empty")]
++    EmptyDeploymentId,
++    #[error("deployment plan generation {actual} does not match requested generation {expected}")]
++    GenerationMismatch { expected: u64, actual: u64 },
++    #[error("deployment generation must advance beyond the previous generation")]
++    NonMonotonicGeneration,
++    #[error("deployment source must contain at least one resolved member")]
++    EmptyResolvedSource,
++    #[error("resolved source member locator must not be empty")]
++    EmptySourceLocator,
++    #[error("resolved source member must use an immutable revision: {0}")]
++    MutableResolvedRevision(String),
++    #[error("invalid SHA-256 digest for {0}")]
++    InvalidSha256(String),
+     #[error("deployment worker must use an exact revision: {0}")]
+     MutableWorkerRevision(String),
+     #[error("consumer-owned deterministic docs require a pinned api-docs revision")]
+     MissingApiDocsRevision,
+     #[error("deployment docs must use consumer_owned publication mode")]
+     InvalidDocsPublicationMode,
++    #[error("deployment docs route catalog digest does not match the admitted route catalog")]
++    DocsRouteCatalogMismatch,
++    #[error("deployment docs output directory must not be empty")]
++    MissingDocsOutputDirectory,
++    #[error("deployment stage {stage:?} failed: {message}; rollback_error={rollback_error:?}")]
++    DeploymentStageFailed {
++        stage: DeploymentStage,
++        message: String,
++        rollback_error: Option<String>,
++    },
+ }
+ 
+ pub fn validate_policy(policy: &DaemonPolicy) -> Result<(), PolicyError> {
++    if policy.product_id.trim().is_empty() {
++        return Err(PolicyError::EmptyProductId);
++    }
++
+     if !policy.listen_addr.ip().is_loopback() {
+         return Err(PolicyError::NonLoopbackBind);
+     }
+@@ -270,6 +326,10 @@ pub fn authorize_transition(policy: &DaemonPolicy, transition: Transition) -> Re
+ }
+ 
+ pub fn authorize_scope(principal: &AuthenticatedPrincipal, required_scope: &str) -> Result<(), PolicyError> {
++    if principal.subject.trim().is_empty() {
++        return Err(PolicyError::EmptyPrincipalSubject);
++    }
++
+     if !principal.scopes.contains(required_scope) {
+         return Err(PolicyError::MissingScope(required_scope.to_string()));
+     }
+@@ -279,46 +339,167 @@ pub fn authorize_scope(principal: &AuthenticatedPrincipal, required_scope: &str)
+ 
+ pub fn validate_update_plan(plan: &UpdatePlan) -> Result<(), PolicyError> {
+     for component in &plan.components {
+-        if component.to_revision.trim().is_empty() || component.to_revision == "latest" {
++        if is_mutable_revision(&component.to_revision) {
+             return Err(PolicyError::MutableRevision(component.component_id.clone()));
+         }
++
++        if let Some(digest) = &component.expected_digest {
++            if !is_sha256(digest) {
++                return Err(PolicyError::InvalidUpdateDigest(component.component_id.clone()));
++            }
++        }
+     }
+ 
+     return Ok(());
+ }
+ 
+-pub fn validate_deployment_plan(request: &DeployRequest, plan: &DeploymentPlan) -> Result<(), PolicyError> {
++pub fn validate_deployment_plan(
++    request: &DeployRequest,
++    plan: &DeploymentPlan,
++    expected_generation: u64,
++) -> Result<(), PolicyError> {
+     request
+         .validate()
+         .map_err(|error| PolicyError::InvalidDeployRequest(error.to_string()))?;
+ 
++    if plan.deployment_id.trim().is_empty() {
++        return Err(PolicyError::EmptyDeploymentId);
++    }
++
++    if plan.product_id.trim().is_empty() {
++        return Err(PolicyError::EmptyProductId);
++    }
++
++    if plan.generation != expected_generation {
++        return Err(PolicyError::GenerationMismatch {
++            expected: expected_generation,
++            actual: plan.generation,
++        });
++    }
++
++    if let Some(previous_generation) = plan.previous_generation {
++        if plan.generation <= previous_generation {
++            return Err(PolicyError::NonMonotonicGeneration);
++        }
++    }
++
+     if plan.full_appliance_restart_required {
+         return Err(PolicyError::UnexpectedApplianceRestart);
+     }
+ 
++    validate_resolved_source(&plan.source)?;
++
++    if !is_sha256(&plan.route_catalog_sha256) {
++        return Err(PolicyError::InvalidSha256("route_catalog_sha256".to_string()));
++    }
++
+     for worker in &plan.workers {
+-        if worker.revision.trim().is_empty() || worker.revision == "latest" {
++        if worker.service_id.trim().is_empty() || is_mutable_revision(&worker.revision) {
+             return Err(PolicyError::MutableWorkerRevision(worker.service_id.clone()));
+         }
+     }
+ 
+     if request.docs_generation == DocsGenerationMode::ConsumerOwned {
+         let docs = plan.docs.as_ref().ok_or(PolicyError::MissingApiDocsRevision)?;
+ 
+-        if docs.api_docs_revision.trim().is_empty()
+-            || matches!(docs.api_docs_revision.as_str(), "latest" | "main" | "master")
+-        {
++        if !is_git_object_id(&docs.api_docs_revision) {
+             return Err(PolicyError::MissingApiDocsRevision);
+         }
+ 
+         if docs.publication_mode != "consumer_owned" {
+             return Err(PolicyError::InvalidDocsPublicationMode);
+         }
++
++        if !is_sha256(&docs.semantic_contract_sha256) {
++            return Err(PolicyError::InvalidSha256(
++                "docs.semantic_contract_sha256".to_string(),
++            ));
++        }
++
++        if !is_sha256(&docs.route_catalog_sha256) {
++            return Err(PolicyError::InvalidSha256(
++                "docs.route_catalog_sha256".to_string(),
++            ));
++        }
++
++        if docs.route_catalog_sha256 != plan.route_catalog_sha256 {
++            return Err(PolicyError::DocsRouteCatalogMismatch);
++        }
++
++        if docs.output_dir.as_os_str().is_empty() {
++            return Err(PolicyError::MissingDocsOutputDirectory);
++        }
++    }
++
++    return Ok(());
++}
++
++fn validate_resolved_source(source: &ResolvedDeploymentSource) -> Result<(), PolicyError> {
++    if source.members.is_empty() {
++        return Err(PolicyError::EmptyResolvedSource);
++    }
++
++    if !is_sha256(&source.compose_sha256) {
++        return Err(PolicyError::InvalidSha256("source.compose_sha256".to_string()));
++    }
++
++    if !is_sha256(&source.admission_sha256) {
++        return Err(PolicyError::InvalidSha256("source.admission_sha256".to_string()));
++    }
++
++    for member in &source.members {
++        if member.locator.trim().is_empty() {
++            return Err(PolicyError::EmptySourceLocator);
++        }
++
++        if is_mutable_revision(&member.revision) {
++            return Err(PolicyError::MutableResolvedRevision(member.locator.clone()));
++        }
++
++        if !is_sha256(&member.content_sha256) {
++            return Err(PolicyError::InvalidSha256(format!(
++                "source member {} content_sha256",
++                member.locator
++            )));
++        }
+     }
+ 
+     return Ok(());
+ }
+ 
++fn is_mutable_revision(revision: &str) -> bool {
++    let normalized = revision.trim().to_ascii_lowercase();
++
++    if normalized.is_empty() {
++        return true;
++    }
++
++    return matches!(
++        normalized.as_str(),
++        "latest" | "main" | "master" | "head" | "trunk" | "dev" | "develop" | "development"
++    );
++}
++
++fn is_git_object_id(revision: &str) -> bool {
++    let revision = revision.trim();
++
++    if revision.len() != 40 && revision.len() != 64 {
++        return false;
++    }
++
++    return revision.bytes().all(|byte| byte.is_ascii_hexdigit());
++}
++
++fn is_sha256(value: &str) -> bool {
++    let value = value.strip_prefix("sha256:").unwrap_or(value);
++
++    if value.len() != 64 {
++        return false;
++    }
++
++    return value.bytes().all(|byte| byte.is_ascii_hexdigit());
++}
++
+ pub fn execute_transition<A: ProductDaemonAdapter>(
+     policy: &DaemonPolicy,
+     adapter: &A,
+@@ -382,14 +563,82 @@ pub fn execute_deployment<A: ProductDeploymentAdapter>(
+         });
+     }
+ 
+-    validate_deployment_plan(request, &plan)?;
+-    adapter
+-        .activate_deployment(&plan)
+-        .map_err(PolicyError::DeploymentActivation)?;
++    validate_deployment_plan(request, &plan, generation)?;
++
++    if plan.docs.is_some() {
++        run_deployment_stage(
++            adapter,
++            &plan,
++            DeploymentStage::DocsGenerated,
++            |adapter, plan| adapter.generate_and_verify_docs(plan),
++        )?;
++    }
++
++    run_deployment_stage(
++        adapter,
++        &plan,
++        DeploymentStage::WorkersStaged,
++        |adapter, plan| adapter.stage_workers(plan),
++    )?;
++    run_deployment_stage(
++        adapter,
++        &plan,
++        DeploymentStage::WorkersHealthy,
++        |adapter, plan| adapter.health_check_workers(plan),
++    )?;
++    run_deployment_stage(
++        adapter,
++        &plan,
++        DeploymentStage::RoutesPrepared,
++        |adapter, plan| adapter.prepare_routes(plan),
++    )?;
++    run_deployment_stage(
++        adapter,
++        &plan,
++        DeploymentStage::RoutesCommitted,
++        |adapter, plan| adapter.commit_routes(plan),
++    )?;
++    run_deployment_stage(
++        adapter,
++        &plan,
++        DeploymentStage::OldGenerationDraining,
++        |adapter, plan| adapter.drain_previous_generation(plan),
++    )?;
++    run_deployment_stage(
++        adapter,
++        &plan,
++        DeploymentStage::Committed,
++        |adapter, plan| adapter.commit_deployment(plan),
++    )?;
+ 
+     return Ok(plan);
+ }
+ 
++fn run_deployment_stage<A, F>(
++    adapter: &A,
++    plan: &DeploymentPlan,
++    stage: DeploymentStage,
++    operation: F,
++) -> Result<(), PolicyError>
++where
++    A: ProductDeploymentAdapter,
++    F: FnOnce(&A, &DeploymentPlan) -> Result<(), String>,
++{
++    if let Err(message) = operation(adapter, plan) {
++        let rollback_error = adapter
++            .rollback_deployment(plan, &stage)
++            .err();
++
++        return Err(PolicyError::DeploymentStageFailed {
++            stage,
++            message,
++            rollback_error,
++        });
++    }
++
++    return Ok(());
++}
++
+ pub fn planned_generation_event(state: &DesiredState) -> TelemetryEvent {
+     return TelemetryEvent {
+         event_name: format!("{OTEL_EVENT_PREFIX}.desired_state.planned"),
+@@ -438,6 +687,68 @@ mod tests {
+     use ores_common_desktop_infra::RouteAuthority;
+     use std::collections::{BTreeMap, BTreeSet};
+     use std::net::{IpAddr, Ipv4Addr};
++    use std::sync::Mutex;
++
++    fn digest(character: char) -> String {
++        return character.to_string().repeat(64);
++    }
++
++    fn request_without_docs() -> DeployRequest {
++        return DeployRequest {
++            source: DeploySource::LocalFolder {
++                path: PathBuf::from("/work/app"),
++            },
++            compose_file: ".ores-compose.yaml".to_string(),
++            route_discovery: RouteDiscoveryMode::ComposeAndBuildMetadata,
++            docs_generation: DocsGenerationMode::Disabled,
++            api_docs_revision: None,
++        };
++    }
++
++    fn valid_plan(generation: u64) -> DeploymentPlan {
++        return DeploymentPlan {
++            deployment_id: "deploy-1".to_string(),
++            product_id: "scintilla".to_string(),
++            generation,
++            previous_generation: generation.checked_sub(1),
++            source: ResolvedDeploymentSource {
++                members: vec![ResolvedSourceMember {
++                    locator: "/work/app".to_string(),
++                    revision: digest('1'),
++                    content_sha256: digest('a'),
++                }],
++                compose_sha256: digest('b'),
++                admission_sha256: digest('c'),
++            },
++            route_catalog_sha256: digest('d'),
++            workers: vec![WorkerDeployment {
++                service_id: "worker".to_string(),
++                revision: digest('2'),
++                activation: WorkerActivation::RestartChild,
++            }],
++            route_changes: vec![],
++            docs: None,
++            full_appliance_restart_required: false,
++        };
++    }
++
++    fn deploy_policy() -> DaemonPolicy {
++        return DaemonPolicy {
++            product_id: "scintilla".to_string(),
++            listen_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 8765),
++            token_file: PathBuf::from("/tmp/scintilla.token"),
++            auth_issuer: DEFAULT_AUTH_ISSUER.to_string(),
++            allowed_transitions: BTreeSet::from([Transition::Deploy]),
++        };
++    }
++
++    fn deploy_principal() -> AuthenticatedPrincipal {
++        return AuthenticatedPrincipal {
++            subject: "user-1".to_string(),
++            device_id: Some("device-1".to_string()),
++            scopes: BTreeSet::from([DEPLOY_SCOPE.to_string()]),
++        };
++    }
+ 
+     #[test]
+     fn remote_bind_is_rejected() {
+@@ -486,28 +797,172 @@ mod tests {
+ 
+     #[test]
+     fn ordinary_app_deploy_cannot_restart_entire_appliance() {
++        let request = request_without_docs();
++        let mut plan = valid_plan(3);
++        plan.full_appliance_restart_required = true;
++
++        assert_eq!(
++            validate_deployment_plan(&request, &plan, 3),
++            Err(PolicyError::UnexpectedApplianceRestart)
++        );
++    }
++
++    #[test]
++    fn docs_must_match_admitted_route_catalog() {
+         let request = DeployRequest {
+-            source: DeploySource::LocalFolder {
+-                path: PathBuf::from("/work/app"),
+-            },
+-            compose_file: ".ores-compose.yaml".to_string(),
+-            route_discovery: RouteDiscoveryMode::ComposeAndBuildMetadata,
+-            docs_generation: DocsGenerationMode::Disabled,
+-            api_docs_revision: None,
++            docs_generation: DocsGenerationMode::ConsumerOwned,
++            ..request_without_docs()
+         };
+-        let plan = DeploymentPlan {
+-            deployment_id: "deploy-1".to_string(),
+-            product_id: "scintilla".to_string(),
+-            generation: 3,
+-            workers: vec![],
+-            route_changes: vec![],
+-            docs: None,
+-            full_appliance_restart_required: true,
++        let mut plan = valid_plan(3);
++        plan.docs = Some(DocsArtifactPlan {
++            api_docs_revision: "1".repeat(40),
++            publication_mode: "consumer_owned".to_string(),
++            semantic_contract_sha256: digest('e'),
++            route_catalog_sha256: digest('f'),
++            output_dir: PathBuf::from("generated/api-docs"),
++        });
++
++        assert_eq!(
++            validate_deployment_plan(&request, &plan, 3),
++            Err(PolicyError::DocsRouteCatalogMismatch)
++        );
++    }
++
++    #[test]
++    fn deployment_generation_must_match_executor_generation() {
++        let request = request_without_docs();
++        let plan = valid_plan(4);
++
++        assert_eq!(
++            validate_deployment_plan(&request, &plan, 5),
++            Err(PolicyError::GenerationMismatch {
++                expected: 5,
++                actual: 4,
++            })
++        );
++    }
++
++    struct RecordingDeploymentAdapter {
++        calls: Mutex<Vec<DeploymentStage>>,
++        fail_at: Option<DeploymentStage>,
++    }
++
++    impl RecordingDeploymentAdapter {
++        fn record(&self, stage: DeploymentStage) -> Result<(), String> {
++            self.calls.lock().expect("calls mutex").push(stage.clone());
++
++            if self.fail_at.as_ref() == Some(&stage) {
++                return Err(format!("forced failure at {stage:?}"));
++            }
++
++            return Ok(());
++        }
++    }
++
++    impl ProductDeploymentAdapter for RecordingDeploymentAdapter {
++        fn product_id(&self) -> &str {
++            return "scintilla";
++        }
++
++        fn plan_deployment(&self, _request: &DeployRequest, generation: u64) -> Result<DeploymentPlan, String> {
++            return Ok(valid_plan(generation));
++        }
++
++        fn generate_and_verify_docs(&self, _plan: &DeploymentPlan) -> Result<(), String> {
++            return self.record(DeploymentStage::DocsGenerated);
++        }
++
++        fn stage_workers(&self, _plan: &DeploymentPlan) -> Result<(), String> {
++            return self.record(DeploymentStage::WorkersStaged);
++        }
++
++        fn health_check_workers(&self, _plan: &DeploymentPlan) -> Result<(), String> {
++            return self.record(DeploymentStage::WorkersHealthy);
++        }
++
++        fn prepare_routes(&self, _plan: &DeploymentPlan) -> Result<(), String> {
++            return self.record(DeploymentStage::RoutesPrepared);
++        }
++
++        fn commit_routes(&self, _plan: &DeploymentPlan) -> Result<(), String> {
++            return self.record(DeploymentStage::RoutesCommitted);
++        }
++
++        fn drain_previous_generation(&self, _plan: &DeploymentPlan) -> Result<(), String> {
++            return self.record(DeploymentStage::OldGenerationDraining);
++        }
++
++        fn commit_deployment(&self, _plan: &DeploymentPlan) -> Result<(), String> {
++            return self.record(DeploymentStage::Committed);
++        }
++
++        fn rollback_deployment(
++            &self,
++            _plan: &DeploymentPlan,
++            _failed_stage: &DeploymentStage,
++        ) -> Result<(), String> {
++            return self.record(DeploymentStage::RollingBack);
++        }
++    }
++
++    #[test]
++    fn deployment_transaction_orders_health_before_route_commit_and_drain() {
++        let adapter = RecordingDeploymentAdapter {
++            calls: Mutex::new(vec![]),
++            fail_at: None,
+         };
+ 
++        execute_deployment(
++            &deploy_policy(),
++            &deploy_principal(),
++            &adapter,
++            &request_without_docs(),
++            7,
++        )
++        .expect("transaction should succeed");
++
+         assert_eq!(
+-            validate_deployment_plan(&request, &plan),
+-            Err(PolicyError::UnexpectedApplianceRestart)
++            adapter.calls.lock().expect("calls mutex").as_slice(),
++            &[
++                DeploymentStage::WorkersStaged,
++                DeploymentStage::WorkersHealthy,
++                DeploymentStage::RoutesPrepared,
++                DeploymentStage::RoutesCommitted,
++                DeploymentStage::OldGenerationDraining,
++                DeploymentStage::Committed,
++            ]
++        );
++    }
++
++    #[test]
++    fn deployment_failure_rolls_back_before_returning_error() {
++        let adapter = RecordingDeploymentAdapter {
++            calls: Mutex::new(vec![]),
++            fail_at: Some(DeploymentStage::WorkersHealthy),
++        };
++
++        let result = execute_deployment(
++            &deploy_policy(),
++            &deploy_principal(),
++            &adapter,
++            &request_without_docs(),
++            8,
++        );
++
++        assert!(matches!(
++            result,
++            Err(PolicyError::DeploymentStageFailed {
++                stage: DeploymentStage::WorkersHealthy,
++                ..
++            })
++        ));
++        assert_eq!(
++            adapter.calls.lock().expect("calls mutex").as_slice(),
++            &[
++                DeploymentStage::WorkersStaged,
++                DeploymentStage::WorkersHealthy,
++                DeploymentStage::RollingBack,
++            ]
+         );
+     }
