@@ -204,8 +204,12 @@ pub fn diff_routes(current: &[RouteSpec], desired: &[RouteSpec]) -> Vec<RouteCha
 
     for (route_id, route) in &desired_by_id {
         match current_by_id.get(route_id) {
-            None => changes.push(RouteChange::Add((**route).clone())),
-            Some(existing) if **existing != **route => changes.push(RouteChange::Replace((**route).clone())),
+            None => {
+                changes.push(RouteChange::Add((**route).clone()));
+            }
+            Some(existing) if **existing != **route => {
+                changes.push(RouteChange::Replace((**route).clone()));
+            }
             Some(_) => {}
         }
     }
@@ -233,7 +237,10 @@ mod tests {
             route_id: route_id.to_string(),
             host: "example.local".to_string(),
             path_prefix: "/".to_string(),
-            target: RouteTarget { host: IpAddr::V4(Ipv4Addr::LOCALHOST), port },
+            target: RouteTarget {
+                host: IpAddr::V4(Ipv4Addr::LOCALHOST),
+                port,
+            },
             public: false,
         };
     }
@@ -243,7 +250,11 @@ mod tests {
         let current = vec![route("a", 8000), route("b", 8001)];
         let desired = vec![route("a", 9000), route("c", 8002)];
         let changes = diff_routes(&current, &desired);
+
         assert_eq!(changes.len(), 3);
+        assert!(matches!(&changes[0], RouteChange::Replace(spec) if spec.route_id == "a"));
+        assert!(matches!(&changes[1], RouteChange::Add(spec) if spec.route_id == "c"));
+        assert!(matches!(&changes[2], RouteChange::Remove { route_id } if route_id == "b"));
     }
 
     #[test]
@@ -256,13 +267,20 @@ mod tests {
                 route_id: "bad".to_string(),
                 host: "public.example".to_string(),
                 path_prefix: "/".to_string(),
-                target: RouteTarget { host: "192.0.2.10".parse().expect("test address"), port: 8080 },
+                target: RouteTarget {
+                    host: "192.0.2.10".parse().expect("test address"),
+                    port: 8080,
+                },
                 public: true,
             }],
             services: vec![],
             labels: BTreeMap::new(),
         };
-        assert!(matches!(validate_desired_state(&state), Err(ValidationError::InvalidRouteTarget(_))));
+
+        assert!(matches!(
+            validate_desired_state(&state),
+            Err(ValidationError::InvalidRouteTarget(route_id)) if route_id == "bad"
+        ));
     }
 
     #[test]
@@ -282,12 +300,20 @@ mod tests {
             }],
             labels: BTreeMap::new(),
         };
-        assert!(matches!(validate_desired_state(&state), Err(ValidationError::InvalidServiceDigest(_))));
+
+        assert!(matches!(
+            validate_desired_state(&state),
+            Err(ValidationError::InvalidServiceDigest(service_id)) if service_id == "ingress"
+        ));
     }
 
     struct TestAdapter;
+
     impl DesktopInfraAdapter for TestAdapter {
-        fn product_id(&self) -> &str { return "wasmx"; }
+        fn product_id(&self) -> &str {
+            return "wasmx";
+        }
+
         fn desired_state(&self) -> DesiredState {
             return DesiredState {
                 product_id: "wasmx".to_string(),
@@ -295,7 +321,12 @@ mod tests {
                 route_authority: RouteAuthority::Erlang,
                 routes: vec![],
                 services: vec![ServiceSpec {
-                    service_id: "router".to_string(), revision: "v1".to_string(), digest: SHA256.to_string(), command_id: "router".to_string(), health_endpoint: None, hot_reloadable: true,
+                    service_id: "router".to_string(),
+                    revision: "v1".to_string(),
+                    digest: SHA256.to_string(),
+                    command_id: "router".to_string(),
+                    health_endpoint: None,
+                    hot_reloadable: true,
                 }],
                 labels: BTreeMap::new(),
             };
@@ -305,6 +336,7 @@ mod tests {
     #[test]
     fn thin_adapter_can_delegate_immediately() {
         let state = desired_state_from_adapter(&TestAdapter).expect("adapter state should validate");
+
         assert_eq!(state.product_id, "wasmx");
         assert_eq!(state.generation, 7);
     }
