@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://oresoftware.dev/schemas/ores-lambda-build-manifest-v2.schema.json",
+  "$comment": "Authored independently from TypeSpec. Cross-field semantic/RPC reachability, deterministic derived paths and source-byte verification are also enforced by ores-stack Rust validation. One physical function has one carrier; provider hosts must not sniff payload bytes to switch carriers.",
+  "$defs": {
+    "repository_identity": { "type": "string", "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$" },
+    "git_sha": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256_hex": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "operation_key": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*(\\.[a-z][a-z0-9_-]*)+$" },
+    "http_method": { "type": "string", "pattern": "^[A-Z][A-Z-]*$" },
+    "absolute_path": { "type": "string", "pattern": "^/" },
+    "lambda_build_provider": { "enum": ["aws", "gcp"] },
+    "lambda_function_kind": { "enum": ["web", "api"] },
+    "lambda_carrier": { "enum": ["http_ingress", "direct_invoke"] },
+    "lambda_server_role": { "enum": ["web_server", "admin_web_server", "api_server", "admin_api_server"] },
+    "source_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository", "commit_sha", "lambda_source", "lambda_source_sha256", "role"],
+      "properties": {
+        "repository": { "$ref": "#/$defs/repository_identity" },
+        "commit_sha": { "$ref": "#/$defs/git_sha" },
+        "lambda_source": { "type": "string", "pattern": "^src/(pages|routes)/(.+/)?lambda\\.rs$" },
+        "lambda_source_sha256": { "$ref": "#/$defs/sha256_hex" },
+        "role": { "$ref": "#/$defs/lambda_server_role" }
+      }
+    },
+    "http_projection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "path", "operation_key"],
+      "properties": {
+        "method": { "$ref": "#/$defs/http_method" },
+        "path": { "$ref": "#/$defs/absolute_path" },
+        "operation_key": { "$ref": "#/$defs/operation_key" }
+      }
+    },
+    "function": {
+      "type": "object",
+      "unevaluatedProperties": false,
+      "required": ["id", "provider", "kind", "carrier", "source", "build_dir", "wrapper_main", "source_copy", "http_projections", "operation_keys", "rpc_operation_keys"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "provider": { "$ref": "#/$defs/lambda_build_provider" },
+        "kind": { "$ref": "#/$defs/lambda_function_kind" },
+        "carrier": { "$ref": "#/$defs/lambda_carrier" },
+        "source": { "$ref": "#/$defs/source_identity" },
+        "build_dir": { "type": "string", "pattern": "^build/lambda/(aws|gcp)/funcs/(web|api)/(http_ingress|direct_invoke)/" },
+        "wrapper_main": { "type": "string", "minLength": 1 },
+        "source_copy": { "type": "string", "minLength": 1 },
+        "page_route": { "$ref": "#/$defs/absolute_path" },
+        "http_projections": { "type": "array", "items": { "$ref": "#/$defs/http_projection" } },
+        "operation_keys": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/operation_key" } },
+        "rpc_operation_keys": { "type": "array", "uniqueItems": true, "items": { "$ref": "#/$defs/operation_key" } }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "web" } }, "required": ["kind"] },
+          "then": {
+            "required": ["page_route"],
+            "properties": {
+              "carrier": { "const": "http_ingress" },
+              "source": { "properties": { "lambda_source": { "pattern": "^src/pages/(.+/)?lambda\\.rs$" }, "role": { "enum": ["web_server", "admin_web_server"] } } },
+              "http_projections": { "maxItems": 0 },
+              "operation_keys": { "maxItems": 0 },
+              "rpc_operation_keys": { "maxItems": 0 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "api" } }, "required": ["kind"] },
+          "then": {
+            "not": { "required": ["page_route"] },
+            "properties": {
+              "source": { "properties": { "lambda_source": { "pattern": "^src/routes/(.+/)?lambda\\.rs$" }, "role": { "enum": ["api_server", "admin_api_server"] } } },
+              "operation_keys": { "minItems": 1 }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "carrier": { "const": "direct_invoke" } }, "required": ["carrier"] },
+          "then": { "properties": { "kind": { "const": "api" }, "provider": { "const": "aws" }, "http_projections": { "maxItems": 0 }, "rpc_operation_keys": { "maxItems": 0 } } }
+        }
+      ]
+    },
+    "manifest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "generated_by", "functions"],
+      "properties": {
+        "schema_version": { "const": "ores.lambda.build.v2" },
+        "generated_by": { "const": "ores-stack" },
+        "functions": { "type": "array", "items": { "$ref": "#/$defs/function" } }
+      }
+    }
+  },
+  "$ref": "#/$defs/manifest"
+}

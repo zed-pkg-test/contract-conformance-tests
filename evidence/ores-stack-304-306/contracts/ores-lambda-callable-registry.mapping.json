@@ -1,0 +1,24 @@
+{
+  "schema": "ores.typespec-json-schema-validator.mapping/v1",
+  "declarations": [
+    { "typespec": "OresLambdaCallableRegistry.CallableName", "generated": "CallableName", "authored": "callable_name" },
+    { "typespec": "OresLambdaCallableRegistry.CallableId", "generated": "CallableId", "authored": "callable_id" },
+    { "typespec": "OresLambdaCallableRegistry.AuthoritySource", "generated": "AuthoritySource", "authored": "authority_source" },
+    { "typespec": "OresLambdaCallableRegistry.LambdaSource", "generated": "LambdaSource", "authored": "lambda_source" },
+    { "typespec": "OresLambdaCallableRegistry.LeafIdentity", "generated": "LeafIdentity", "authored": "leaf_identity" },
+    { "typespec": "OresLambdaCallableRegistry.CallableOriginKind", "generated": "CallableOriginKind", "authored": "callable_origin_kind" },
+    { "typespec": "OresLambdaCallableRegistry.TransportLeafKind", "generated": "TransportLeafKind", "authored": "transport_leaf_kind" },
+    { "typespec": "OresLambdaCallableRegistry.TransportLeafStreamMode", "generated": "TransportLeafStreamMode", "authored": "transport_leaf_stream_mode" },
+    { "typespec": "OresLambdaCallableRegistry.GraphqlLeafKind", "generated": "GraphqlLeafKind", "authored": "graphql_leaf_kind" },
+    { "typespec": "OresLambdaCallableRegistry.LambdaCallableIdentityV1", "generated": "LambdaCallableIdentityV1", "authored": "callable" },
+    { "typespec": "OresLambdaCallableRegistry.TransportLeafBuildIdentityV1", "generated": "TransportLeafBuildIdentityV1", "authored": "transport_identity" },
+    { "typespec": "OresLambdaCallableRegistry.CallableProjectionLocatorV1", "generated": "CallableProjectionLocatorV1", "authored": "projection" },
+    { "typespec": "OresLambdaCallableRegistry.CallableRegistryEntryV1", "generated": "CallableRegistryEntryV1", "authored": "entry" },
+    { "typespec": "OresLambdaCallableRegistry.LambdaCallableRegistryV1", "generated": "LambdaCallableRegistryV1", "authored": "registry" }
+  ],
+  "ignore": {
+    "typespec": [],
+    "generated": ["RecordString"],
+    "authored": []
+  }
+}
