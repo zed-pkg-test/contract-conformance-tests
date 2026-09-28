@@ -200,6 +200,13 @@ impl DeploymentJournalEntry {
         return Ok(());
     }
 
+    /// Choose a restart action only after comparing the journal with the
+    /// complete durable identity that is actually active.
+    ///
+    /// The journal is evidence about an interrupted operation, not authority to
+    /// overwrite a newer deployment. Generation numbers are insufficient: the
+    /// bundle digest is part of identity, so a same-number/different-digest
+    /// pointer fails closed as stale or corrupt state.
     pub fn recovery_action(
         &self,
         actual_active_identity: &GenerationIdentity,
@@ -322,18 +329,78 @@ mod tests {
             .expect("test identity should be valid");
     }
 
-    #[test]
-    fn same_generation_with_wrong_digest_fails_closed() {
-        let entry = DeploymentJournalEntry {
+    fn journal(stage: OperationStage) -> DeploymentJournalEntry {
+        return DeploymentJournalEntry {
             operation_id: "deploy-42".to_string(),
             target_identity: identity(42, 'b'),
             previous_identity: Some(identity(41, 'a')),
-            stage: OperationStage::Committed,
+            stage,
         };
+    }
+
+    #[test]
+    fn crash_after_activation_prefers_last_known_good_identity() {
+        let entry = journal(OperationStage::Activated);
+
+        assert_eq!(
+            entry
+                .recovery_action(&identity(42, 'b'))
+                .expect("matching active target should recover"),
+            RecoveryAction::RollBackTo {
+                identity: identity(41, 'a')
+            }
+        );
+    }
+
+    #[test]
+    fn same_generation_with_wrong_digest_fails_closed() {
+        let entry = journal(OperationStage::Committed);
 
         assert!(matches!(
             entry.recovery_action(&identity(42, 'c')),
             Err(GenerationError::RecoveryStateMismatch { .. })
         ));
+    }
+
+    #[test]
+    fn health_checked_restart_resumes_only_from_expected_previous_identity() {
+        let entry = journal(OperationStage::HealthChecked);
+
+        assert_eq!(
+            entry
+                .recovery_action(&identity(41, 'a'))
+                .expect("previous identity should permit activation resume"),
+            RecoveryAction::ResumeActivation {
+                identity: identity(42, 'b')
+            }
+        );
+    }
+
+    #[test]
+    fn invalid_identity_and_generation_order_fail_closed() {
+        assert_eq!(
+            GenerationIdentity::new(41, "A".repeat(64)),
+            Err(GenerationError::InvalidGenerationDigest { generation: 41 })
+        );
+
+        let mut entry = journal(OperationStage::Staged);
+        entry.previous_identity = Some(identity(42, 'a'));
+        assert_eq!(entry.validate(), Err(GenerationError::NonMonotonicJournal));
+    }
+
+    #[test]
+    fn staged_identity_can_activate_and_commit() {
+        let mut state = GenerationState::new(identity(41, 'a')).expect("state should initialize");
+
+        state.stage(identity(42, 'b')).expect("identity should stage");
+        state.activate_staged().expect("identity should activate");
+
+        assert_eq!(state.active_identity, identity(42, 'b'));
+        assert_eq!(state.previous_identity, Some(identity(41, 'a')));
+
+        state.commit();
+
+        assert_eq!(state.active_identity, identity(42, 'b'));
+        assert_eq!(state.previous_identity, None);
     }
 }
