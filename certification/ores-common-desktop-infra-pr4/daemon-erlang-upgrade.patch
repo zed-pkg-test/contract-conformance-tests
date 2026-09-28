@@ -1,0 +1,187 @@
+diff --git a/daemon/erlang/src/ores_common_desktop_upgrade.erl b/daemon/erlang/src/ores_common_desktop_upgrade.erl
+--- a/daemon/erlang/src/ores_common_desktop_upgrade.erl
++++ b/daemon/erlang/src/ores_common_desktop_upgrade.erl
+@@ -3,42 +3,126 @@
+ -export([reload_modules/1, upgrade_server/4]).
+ 
+ reload_modules(Modules) when is_list(Modules) ->
+-    reload_modules(Modules, []).
++    case capture_modules(Modules) of
++        {ok, Captured} ->
++            reload_modules(Modules, Captured, []);
++        {error, _Reason} = Error ->
++            Error
++    end.
+ 
+ upgrade_server(Server, Module, OldVersion, Extra)
+         when is_atom(Module) ->
++    case capture_module(Module) of
++        {ok, PreviousObject} ->
++            upgrade_captured_server(Server, Module, OldVersion, Extra, PreviousObject);
++        {error, _Reason} = Error ->
++            Error
++    end.
++
++upgrade_captured_server(Server, Module, OldVersion, Extra, PreviousObject) ->
+     case sys:suspend(Server) of
+         ok ->
+             try
+                 case load_module(Module) of
+                     ok ->
+                         case sys:change_code(Server, Module, OldVersion, Extra) of
+                             ok ->
++                                _ = code:soft_purge(Module),
+                                 ok;
+                             {error, Reason} ->
+-                                {error, {code_change_failed, Module, Reason}}
++                                rollback_failed_server_upgrade(
++                                    Server,
++                                    Module,
++                                    PreviousObject,
++                                    Reason
++                                )
+                         end;
+                     {error, _Reason} = Error ->
+                         Error
+                 end
+             after
+-                _ = sys:resume(Server)
++                safe_resume(Server)
+             end;
+         {error, Reason} ->
+             {error, {suspend_failed, Server, Reason}}
+     end.
+ 
+-reload_modules([], Loaded) ->
++rollback_failed_server_upgrade(Server, Module, PreviousObject, ChangeReason) ->
++    case restore_module(Module, PreviousObject) of
++        ok ->
++            {error, {code_change_failed, Module, ChangeReason, rolled_back}};
++        {error, RollbackReason} ->
++            _ = safe_terminate(
++                Server,
++                {unsafe_code_upgrade_state, Module, ChangeReason, RollbackReason}
++            ),
++            {error, {
++                code_change_failed,
++                Module,
++                ChangeReason,
++                {rollback_failed, RollbackReason}
++            }}
++    end.
++
++reload_modules([], _Captured, Loaded) ->
+     {ok, lists:reverse(Loaded)};
+-reload_modules([Module | Rest], Loaded) when is_atom(Module) ->
++reload_modules([Module | Rest], Captured, Loaded) when is_atom(Module) ->
+     case load_module(Module) of
+         ok ->
+-            reload_modules(Rest, [Module | Loaded]);
++            reload_modules(Rest, Captured, [Module | Loaded]);
+         {error, Reason} ->
+-            {error, {Module, Reason, lists:reverse(Loaded)}}
++            rollback_reloaded_modules(Module, Reason, Loaded, Captured)
+     end;
+-reload_modules([Invalid | _Rest], Loaded) ->
+-    {error, {invalid_module, Invalid, lists:reverse(Loaded)}}.
++reload_modules([Invalid | _Rest], _Captured, _Loaded) ->
++    {error, {invalid_module, Invalid}}.
++
++rollback_reloaded_modules(FailedModule, LoadReason, Loaded, Captured) ->
++    RollbackErrors = lists:foldl(
++        fun(Module, Errors) ->
++            PreviousObject = maps:get(Module, Captured),
++            case restore_module(Module, PreviousObject) of
++                ok ->
++                    Errors;
++                {error, Reason} ->
++                    [{Module, Reason} | Errors]
++            end
++        end,
++        [],
++        Loaded
++    ),
++    case RollbackErrors of
++        [] ->
++            {error, {FailedModule, LoadReason, rolled_back}};
++        _ ->
++            {error, {
++                FailedModule,
++                LoadReason,
++                {rollback_failed, lists:reverse(RollbackErrors)}
++            }}
++    end.
++
++capture_modules(Modules) ->
++    capture_modules(Modules, #{}).
++
++capture_modules([], Captured) ->
++    {ok, Captured};
++capture_modules([Module | Rest], Captured) when is_atom(Module) ->
++    case capture_module(Module) of
++        {ok, Object} ->
++            capture_modules(Rest, Captured#{Module => Object});
++        {error, _Reason} = Error ->
++            Error
++    end;
++capture_modules([Invalid | _Rest], _Captured) ->
++    {error, {invalid_module, Invalid}}.
++
++capture_module(Module) ->
++    case code:get_object_code(Module) of
++        {Module, Binary, Filename} ->
++            {ok, {Binary, Filename}};
++        error ->
++            {error, {module_object_unavailable, Module}}
++    end.
+ 
+ load_module(Module) ->
+     case code:soft_purge(Module) of
+@@ -52,3 +136,47 @@ load_module(Module) ->
+         false ->
+             {error, module_busy}
+     end.
++
++restore_module(Module, {Binary, Filename}) ->
++    case code:soft_purge(Module) of
++        true ->
++            case code:load_binary(Module, Filename, Binary) of
++                {module, Module} ->
++                    _ = code:soft_purge(Module),
++                    ok;
++                {error, Reason} ->
++                    {error, {restore_load_failed, Reason}}
++            end;
++        false ->
++            {error, restore_module_busy}
++    end.
++
++safe_resume(Server) ->
++    case server_alive(Server) of
++        true ->
++            catch sys:resume(Server),
++            ok;
++        false ->
++            ok
++    end.
++
++safe_terminate(Server, Reason) ->
++    case server_alive(Server) of
++        true ->
++            catch sys:terminate(Server, Reason, 5000),
++            ok;
++        false ->
++            ok
++    end.
++
++server_alive(Server) when is_pid(Server) ->
++    is_process_alive(Server);
++server_alive(Server) when is_atom(Server) ->
++    case whereis(Server) of
++        undefined ->
++            false;
++        Pid ->
++            is_process_alive(Pid)
++    end;
++server_alive(_Server) ->
++    false.
