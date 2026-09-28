@@ -17,6 +17,6 @@
     "lock-workspace/conformance/rust/Cargo.toml": "8858534c0de63085cc215b0e79acc0b3db74f413",
     "lock-workspace/infra/rust/Cargo.toml": "675dc8092b5cec815605189a4d13254710cd95c4",
     "delta-workspace/infra-recovery/src/generation.rs": "638fc9881b0873851596638f3b48c66ad2c0942b",
-    "delta-workspace/infra-recovery/tests/recovery_conformance.rs": "96f3134504b3c2831caf30c7783888848bdf2900"
+    "source-snapshots/recovery_conformance.rs": "96f3134504b3c2831caf30c7783888848bdf2900"
   }
 }
