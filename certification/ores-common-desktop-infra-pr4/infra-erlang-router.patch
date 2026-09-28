@@ -1,0 +1,149 @@
+diff --git a/infra/erlang/src/ores_common_desktop_router.erl b/infra/erlang/src/ores_common_desktop_router.erl
+--- a/infra/erlang/src/ores_common_desktop_router.erl
++++ b/infra/erlang/src/ores_common_desktop_router.erl
+@@ -1,12 +1,11 @@
+ -module(ores_common_desktop_router).
+ -behaviour(gen_server).
+ 
+--export([start_link/0, replace_routes/2, route/2, revision/0]).
++-export([start_link/0, replace_routes/2, route/2, revision/0, snapshot/0]).
+ -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+ 
+ -define(SERVER, ?MODULE).
+--define(ROUTES_KEY, {?MODULE, routes}).
+--define(REVISION_KEY, {?MODULE, revision}).
++-define(SNAPSHOT_KEY, {?MODULE, snapshot}).
+ 
+ start_link() ->
+     gen_server:start_link({local, ?SERVER}, ?MODULE, [], []).
+@@ -15,22 +14,39 @@ replace_routes(Revision, Routes) when is_binary(Revision), is_map(Routes) ->
+     gen_server:call(?SERVER, {replace_routes, Revision, Routes}).
+ 
+ route(Host, Path) when is_binary(Host), is_binary(Path) ->
+-    Routes = persistent_term:get(?ROUTES_KEY, #{}),
+-    lookup_route(Host, Path, Routes).
++    {_Revision, Routes} = snapshot(),
++    lookup_route(normalize_host(Host), Path, Routes).
+ 
+ revision() ->
+-    persistent_term:get(?REVISION_KEY, undefined).
++    {Revision, _Routes} = snapshot(),
++    Revision.
++
++snapshot() ->
++    persistent_term:get(?SNAPSHOT_KEY, {undefined, #{}}).
+ 
+ init([]) ->
+-    persistent_term:put(?ROUTES_KEY, #{}),
+-    persistent_term:put(?REVISION_KEY, undefined),
++    case persistent_term:get(?SNAPSHOT_KEY, undefined) of
++        undefined ->
++            persistent_term:put(?SNAPSHOT_KEY, {undefined, #{}});
++        {_Revision, ExistingRoutes} when is_map(ExistingRoutes) ->
++            ok;
++        _InvalidSnapshot ->
++            persistent_term:put(?SNAPSHOT_KEY, {undefined, #{}})
++    end,
+     {ok, #{}}.
+ 
+ handle_call({replace_routes, Revision, Routes}, _From, State) ->
+-    ok = validate_routes(Routes),
+-    persistent_term:put(?ROUTES_KEY, Routes),
+-    persistent_term:put(?REVISION_KEY, Revision),
+-    {reply, ok, State};
++    case validate_revision(Revision) of
++        ok ->
++            case normalize_and_validate_routes(Routes) of
++                {ok, NormalizedRoutes} ->
++                    commit_snapshot(Revision, NormalizedRoutes, State);
++                {error, _Reason} = Error ->
++                    {reply, Error, State}
++            end;
++        {error, _Reason} = Error ->
++            {reply, Error, State}
++    end;
+ handle_call(_Request, _From, State) ->
+     {reply, {error, unsupported_request}, State}.
+ 
+@@ -46,20 +62,72 @@ terminate(_Reason, _State) ->
+ code_change(_OldVersion, State, _Extra) ->
+     {ok, State}.
+ 
+-validate_routes(Routes) ->
++commit_snapshot(Revision, Routes, State) ->
++    case snapshot() of
++        {Revision, Routes} ->
++            {reply, ok, State};
++        {Revision, _DifferentRoutes} ->
++            {reply, {error, revision_conflict}, State};
++        {_CurrentRevision, _CurrentRoutes} ->
++            persistent_term:put(?SNAPSHOT_KEY, {Revision, Routes}),
++            {reply, ok, State}
++    end.
++
++validate_revision(Revision) when byte_size(Revision) > 0 ->
++    ok;
++validate_revision(_Revision) ->
++    {error, invalid_revision}.
++
++normalize_and_validate_routes(Routes) ->
+     maps:fold(
+-        fun(Key, Target, ok) ->
+-            validate_route(Key, Target)
++        fun(Key, Target, {ok, Acc}) ->
++            case normalize_and_validate_route(Key, Target) of
++                {ok, NormalizedKey, NormalizedTarget} ->
++                    case maps:is_key(NormalizedKey, Acc) of
++                        true ->
++                            {error, {duplicate_route, NormalizedKey}};
++                        false ->
++                            {ok, Acc#{NormalizedKey => NormalizedTarget}}
++                    end;
++                {error, _Reason} = Error ->
++                    Error
++            end;
++           (_Key, _Target, {error, _Reason} = Error) ->
++            Error
+         end,
+-        ok,
++        {ok, #{}},
+         Routes
+     ).
+ 
+-validate_route({Host, Prefix}, #{host := TargetHost, port := Port})
+-        when is_binary(Host), is_binary(Prefix), is_tuple(TargetHost), is_integer(Port), Port > 0, Port < 65536 ->
+-    ok;
+-validate_route(_Key, _Target) ->
+-    error(invalid_route).
++normalize_and_validate_route({Host, Prefix}, #{host := TargetHost, port := Port} = Target)
++        when is_binary(Host), byte_size(Host) > 0,
++             is_binary(Prefix), byte_size(Prefix) > 0,
++             is_integer(Port), Port > 0, Port < 65536 ->
++    case {valid_path_prefix(Prefix), loopback_target(TargetHost)} of
++        {true, true} ->
++            {ok, {normalize_host(Host), Prefix}, Target};
++        {false, _} ->
++            {error, {invalid_path_prefix, Prefix}};
++        {_, false} ->
++            {error, {non_loopback_target, TargetHost}}
++    end;
++normalize_and_validate_route(Key, _Target) ->
++    {error, {invalid_route, Key}}.
++
++valid_path_prefix(<<"/", _/binary>>) ->
++    true;
++valid_path_prefix(_) ->
++    false.
++
++loopback_target({127, 0, 0, 1}) ->
++    true;
++loopback_target({0, 0, 0, 0, 0, 0, 0, 1}) ->
++    true;
++loopback_target(_) ->
++    false.
++
++normalize_host(Host) ->
++    list_to_binary(string:lowercase(binary_to_list(Host))).
+ 
+ lookup_route(Host, Path, Routes) ->
+     Candidates = [
