@@ -50,11 +50,26 @@ class OresCommonMobileHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandle
                     ),
                 )
             }
-            "startPersistentHosting" -> startPersistentHosting(call, result)
-            "stopPersistentHosting" -> stopPersistentHosting(result)
-            "scheduleRepairWake" -> scheduleRepairWake(call, result)
-            "configureKeepalivePrompts" -> configureKeepalivePrompts(call, result)
-            else -> result.notImplemented()
+
+            "startPersistentHosting" -> {
+                startPersistentHosting(call, result)
+            }
+
+            "stopPersistentHosting" -> {
+                stopPersistentHosting(result)
+            }
+
+            "scheduleRepairWake" -> {
+                scheduleRepairWake(call, result)
+            }
+
+            "configureKeepalivePrompts" -> {
+                configureKeepalivePrompts(call, result)
+            }
+
+            else -> {
+                result.notImplemented()
+            }
         }
     }
 
@@ -62,23 +77,37 @@ class OresCommonMobileHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandle
         val productId = call.argument<String>("product_id")
         val originPort = call.argument<Int>("origin_port")
 
-        if (productId.isNullOrBlank() || originPort == null || originPort <= 0) {
-            result.error("invalid_host_config", "product_id and origin_port are required", null)
+        if (productId.isNullOrBlank() || originPort == null || originPort !in 1..65535) {
+            result.error(
+                "invalid_host_config",
+                "product_id and a valid origin_port are required",
+                null,
+            )
             return
         }
 
-        context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
-            .edit()
+        val preferences = context.getSharedPreferences(
+            PREFERENCES_NAME,
+            Context.MODE_PRIVATE,
+        )
+        preferences.edit()
             .putString("product_id", productId)
             .putInt("origin_port", originPort)
             .putBoolean("hosting_enabled", true)
-            .apply()
+            .commit()
 
         try {
             MobileHostForegroundService.start(context, productId, originPort)
             result.success(null)
         } catch (error: RuntimeException) {
-            result.error("foreground_service_start_failed", error.message, null)
+            preferences.edit()
+                .putBoolean("hosting_enabled", false)
+                .commit()
+            result.error(
+                "foreground_service_start_failed",
+                error.message,
+                null,
+            )
         }
     }
 
@@ -86,7 +115,7 @@ class OresCommonMobileHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandle
         context.getSharedPreferences(PREFERENCES_NAME, Context.MODE_PRIVATE)
             .edit()
             .putBoolean("hosting_enabled", false)
-            .apply()
+            .commit()
 
         WorkManager.getInstance(context).cancelUniqueWork(REPAIR_WORK_NAME)
         MobileHostForegroundService.stop(context)
@@ -97,7 +126,7 @@ class OresCommonMobileHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandle
         val minimumDelaySeconds = call.argument<Number>("minimum_delay_seconds")
             ?.toLong()
             ?: 0L
-        val requestedMinutes = ceil(minimumDelaySeconds / 60.0).toLong()
+        val requestedMinutes = ceil(max(0L, minimumDelaySeconds) / 60.0).toLong()
         val intervalMinutes = max(MIN_PERIODIC_WAKE_MINUTES, requestedMinutes)
 
         val request = PeriodicWorkRequestBuilder<HostingRepairWorker>(
@@ -124,7 +153,11 @@ class OresCommonMobileHostPlugin : FlutterPlugin, MethodChannel.MethodCallHandle
         val promptsPerDay = call.argument<Int>("prompts_per_day") ?: 4
 
         if (promptsPerDay < MIN_NUDGES_PER_DAY || promptsPerDay > MAX_NUDGES_PER_DAY) {
-            result.error("invalid_prompt_frequency", "prompts_per_day must be between 3 and 5", null)
+            result.error(
+                "invalid_prompt_frequency",
+                "prompts_per_day must be between 3 and 5",
+                null,
+            )
             return
         }
 
