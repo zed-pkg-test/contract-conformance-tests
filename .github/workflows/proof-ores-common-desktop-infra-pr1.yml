@@ -25,7 +25,7 @@ jobs:
         run: |
           set -euo pipefail
           root=fixtures/ores-common-desktop-infra
-          grep -q '727e088ccc8f7af6e225d569e8900a5102148a86' "$root/SOURCE.md"
+          grep -q 'f6ac43e404ae148f15948dc85e40274a21963bee' "$root/SOURCE.md"
           test "$(git hash-object "$root/cli/rust/src/lib.rs")" = f87cd19eaf2e3e88d043c9c616a97b3480989284
           test "$(git hash-object "$root/infra/rust/src/lib.rs")" = 285dcde1728569fccab54693d0484f91d94d58cb
           test "$(git hash-object "$root/desktop-app/rust/src/lib.rs")" = 583888657c3a42b171707ad70f00d439993e1d69
@@ -74,7 +74,7 @@ jobs:
           flutter=fixtures/ores-common-desktop-infra/flutter
           android="$flutter/android/src/main/kotlin/com/oresoftware/common_desktop_infra"
           test "$(git hash-object "$flutter/lib/src/host_models.dart")" = abf46f54098d0d2dd0ce8c09fd3b4f5d6cdd3093
-          test "$(git hash-object "$flutter/lib/src/cloudflare_relay_client.dart")" = e9af973a5109bccf1c4b39b15662967082aff29b
+          test "$(git hash-object "$flutter/lib/src/cloudflare_relay_client.dart")" = 4a8c8fd765ac5a5bbc6200a3f049078c0fec3acc
           test "$(git hash-object "$flutter/test/host_models_test.dart")" = d9f220644faaff59a71b086e5d41530250e76f3b
           test "$(git hash-object "$android/MobileHostForegroundService.kt")" = fd6471535fcf15c6b72be82d60815e6aa6afaa61
           test "$(git hash-object "$android/OresCommonMobileHostPlugin.kt")" = c5f45ab4d47416860a51ff240665418d98a4b4f4
@@ -126,7 +126,7 @@ jobs:
           set -euo pipefail
           flutter=fixtures/ores-common-desktop-infra/flutter
           test "$(git hash-object "$flutter/lib/src/host_models.dart")" = abf46f54098d0d2dd0ce8c09fd3b4f5d6cdd3093
-          test "$(git hash-object "$flutter/lib/src/cloudflare_relay_client.dart")" = e9af973a5109bccf1c4b39b15662967082aff29b
+          test "$(git hash-object "$flutter/lib/src/cloudflare_relay_client.dart")" = 4a8c8fd765ac5a5bbc6200a3f049078c0fec3acc
           test "$(git hash-object "$flutter/test/host_models_test.dart")" = d9f220644faaff59a71b086e5d41530250e76f3b
           test "$(git hash-object "$flutter/ios/Classes/OresCommonMobileHostPlugin.swift")" = ab499695234c3e5ecd07b103ee9251e76f3f86cd
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
