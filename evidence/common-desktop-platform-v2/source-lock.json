@@ -1,0 +1,22 @@
+{
+  "source": {
+    "repository": "ORESoftware/ores-common-desktop-infra",
+    "pull_request": 20,
+    "commit_sha": "b4f7d784415dbe9e5b7bc49bfae68bad641f5f12"
+  },
+  "files": {
+    "lock-workspace/Cargo.toml": "83fc4f01040cdb3b4260149234ff763ef0e88609",
+    "lock-workspace/auth/rust/Cargo.toml": "9cca495272371d12adbc550c16442073759634f1",
+    "lock-workspace/cli/rust/Cargo.toml": "f8fd2ea8fce5f2d48105e22e12a9e09371df23fe",
+    "lock-workspace/daemon/rust/Cargo.toml": "b63bab2ab9fa311582fc33d5f9195f4fe83e9053",
+    "lock-workspace/desktop-app/rust/Cargo.toml": "10ab1609c2ba28e4a874437c1694d423ddbfe840",
+    "lock-workspace/router/rust/Cargo.toml": "13f6c5ab2ce0420620b7f1a1138fca2a9665c22a",
+    "lock-workspace/runtime/rust/Cargo.toml": "a739953e4578d181f21e0afad31813915003cea9",
+    "lock-workspace/runtime-generation/rust/Cargo.toml": "b59a5c9ebf1b95932e879495f3e764a2511028d1",
+    "lock-workspace/state/rust/Cargo.toml": "27c608844e705c8dacd2f960bd20ccd6791be3d1",
+    "lock-workspace/conformance/rust/Cargo.toml": "8858534c0de63085cc215b0e79acc0b3db74f413",
+    "lock-workspace/infra/rust/Cargo.toml": "675dc8092b5cec815605189a4d13254710cd95c4",
+    "delta-workspace/infra-recovery/src/generation.rs": "638fc9881b0873851596638f3b48c66ad2c0942b",
+    "delta-workspace/infra-recovery/tests/recovery_conformance.rs": "96f3134504b3c2831caf30c7783888848bdf2900"
+  }
+}

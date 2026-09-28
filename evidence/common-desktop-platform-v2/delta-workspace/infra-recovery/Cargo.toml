@@ -1,0 +1,11 @@
+[package]
+name = "ores-common-desktop-infra-recovery-proof"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ores-runtime-generation = { path = "../runtime-generation-stub" }
+serde.workspace = true
+thiserror.workspace = true
