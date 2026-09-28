@@ -31,7 +31,8 @@ jobs:
         run: |
           set -euo pipefail
           root='evidence/common-desktop-platform-v2'
-          jq -e '.source.commit_sha == "84f7e3008edf532357aebe82cf7a3c35f62c197e"' "$root/source-lock.json" >/dev/null
+          expected_source_sha='fa3b0f1b8260d368179d7077020a9f12c1382d8c'
+          jq -e --arg sha "$expected_source_sha" '.source.commit_sha == $sha' "$root/source-lock.json" >/dev/null
           jq -r '.files | to_entries[] | [.key,.value] | @tsv' "$root/source-lock.json" |
           while IFS=$'\t' read -r path expected; do
             actual="$(git hash-object "$root/$path")"
