@@ -23,8 +23,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git hash-object proofs/ores-stack-57/conformance/binary-payload-codecs.v1.tsv)" = "9e1302b259663e6e5c01af57e1f04aa72eacb5b7"
-          test "$(git hash-object proofs/ores-stack-57/tools/binary_payload_codec_check.rs)" = "e209ffbc310b9de2bbb8b2982572df98656ecd41"
-          grep -Fx 'source_head=ed54a8f66ee556d115f9a41e2fb97ce37d205c76' proofs/ores-stack-57/receipt.txt
+          test "$(git hash-object proofs/ores-stack-57/tools/binary_payload_codec_check.rs)" = "fbbf76fb6a84e70685842f2ed0a3aad05eb72d5d"
+          grep -Fx 'source_head=cf958b0b3598e97b7602bf6ba5a8ea1944f51115' proofs/ores-stack-57/receipt.txt
 
       - name: Install pinned Rust toolchain
         shell: bash
