@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "repository": "ORESoftware/my-ai",
+  "pull_request": 171,
+  "commit_sha": "4fb7a2b01db47674913a4d0da90d7ce3cf4fef22",
+  "files": {
+    "SHARED.md": "bd93490370aa9bc7c1b5a6b8dd41210fa2a6db92"
+  }
+}

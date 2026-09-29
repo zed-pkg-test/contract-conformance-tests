@@ -1,0 +1,46 @@
+name: certify my-ai 170 credential policy
+
+on:
+  pull_request:
+    paths:
+      - "evidence/my-ai-170/**"
+      - "tools/verify_my_ai_170_policy.rs"
+      - ".github/workflows/certify-my-ai-170.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  policy-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: 1.88.0
+          components: rustfmt,clippy
+
+      - name: Verify exact production blob identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          root='evidence/my-ai-170'
+          test "$(jq -r '.commit_sha' "$root/source-lock.json")" = '4fb7a2b01db47674913a4d0da90d7ce3cf4fef22'
+          expected="$(jq -r '.files["SHARED.md"]' "$root/source-lock.json")"
+          test "$(git hash-object "$root/SHARED.md")" = "$expected"
+
+      - name: Format checker
+        run: rustfmt --edition 2024 --check tools/verify_my_ai_170_policy.rs
+
+      - name: Compile and run deterministic policy proof
+        run: |
+          set -euo pipefail
+          rustc --edition 2024 --test tools/verify_my_ai_170_policy.rs -o /tmp/my-ai-170-policy-tests
+          /tmp/my-ai-170-policy-tests
+          rustc --edition 2024 tools/verify_my_ai_170_policy.rs -o /tmp/my-ai-170-policy-proof
+          /tmp/my-ai-170-policy-proof
