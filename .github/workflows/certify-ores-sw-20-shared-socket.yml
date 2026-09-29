@@ -1,0 +1,209 @@
+name: certify ores-sw 20 shared socket
+
+on:
+  pull_request:
+    paths:
+      - "evidence/ores-sw-20/**"
+      - "tools/verify_ores_sw_20_browser.mjs"
+      - ".github/workflows/certify-ores-sw-20-shared-socket.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ORES_SW_SHA: 4663e45b0ec4dc4d24792235f4c550355a603602
+  ZED_CLI_SHA: 344d432a6f94d4b1cfa02228ec36623c7484177a
+
+jobs:
+  source-lock:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out proof carrier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Check out exact ores-sw candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ORESoftware/ores-sw.js
+          ref: ${{ env.ORES_SW_SHA }}
+          path: source
+          persist-credentials: false
+
+      - name: Verify exact source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          lock='evidence/ores-sw-20/source-lock.json'
+          test "$(jq -r '.commit_sha' "$lock")" = "$ORES_SW_SHA"
+          test "$(git -C source rev-parse HEAD)" = "$ORES_SW_SHA"
+          while IFS=$'\t' read -r file expected; do
+            actual="$(git -C source hash-object "$file")"
+            test "$actual" = "$expected" || {
+              echo "blob mismatch: $file expected=$expected actual=$actual" >&2
+              exit 1
+            }
+          done < <(jq -r '.files | to_entries[] | [.key,.value] | @tsv' "$lock")
+
+  js-contracts:
+    needs: source-lock
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ORESoftware/ores-sw.js
+          ref: ${{ env.ORES_SW_SHA }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.9.0'
+      - name: Enforce governance participant parity
+        run: node scripts/check-polyglot-governance.mjs
+      - name: Install exact source dependencies
+        run: npm install --ignore-scripts --no-audit --no-fund
+      - name: Run TypeScript, unit, contract, consumer, and build checks
+        run: npm run check
+
+  rust-server-adapters:
+    needs: source-lock
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ORESoftware/ores-sw.js
+          ref: ${{ env.ORES_SW_SHA }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.9.0'
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: stable
+          components: rustfmt,clippy
+      - run: npm install --ignore-scripts --no-audit --no-fund
+      - run: npm run build
+      - run: cargo fmt --manifest-path rust/Cargo.toml -- --check
+      - run: cargo fmt --manifest-path rust/axum07/Cargo.toml -- --check
+      - run: cargo fmt --manifest-path rust/axum08/Cargo.toml -- --check
+      - run: cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
+      - run: cargo clippy --manifest-path rust/axum07/Cargo.toml --all-targets -- -D warnings
+      - run: cargo clippy --manifest-path rust/axum08/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --manifest-path rust/Cargo.toml --all-targets
+      - run: cargo test --manifest-path rust/axum07/Cargo.toml --all-targets
+      - run: cargo test --manifest-path rust/axum08/Cargo.toml --all-targets
+
+  wasm:
+    needs: source-lock
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ORESoftware/ores-sw.js
+          ref: ${{ env.ORES_SW_SHA }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.9.0'
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+          components: rustfmt,clippy
+      - run: cargo fmt --manifest-path wasm/Cargo.toml -- --check
+      - run: cargo clippy --manifest-path wasm/Cargo.toml --all-targets -- -D warnings
+      - run: cargo test --manifest-path wasm/Cargo.toml --all-targets
+      - run: cargo check --manifest-path wasm/Cargo.toml --target wasm32-unknown-unknown
+      - run: cargo install wasm-pack --version 0.13.1 --locked
+      - run: npm run build:wasm
+
+  browser-multitab:
+    needs: source-lock
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out proof carrier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Check out exact ores-sw candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ORESoftware/ores-sw.js
+          ref: ${{ env.ORES_SW_SHA }}
+          path: source
+          persist-credentials: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.9.0'
+
+      - name: Build exact browser worker candidate
+        working-directory: source
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          npm run build
+
+      - name: Install isolated browser proof dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          harness="$RUNNER_TEMP/ores-sw-browser-harness"
+          mkdir -p "$harness"
+          printf '{"private":true,"type":"module"}\n' > "$harness/package.json"
+          npm install --prefix "$harness" --no-save --package-lock=false --ignore-scripts --no-audit --no-fund playwright@1.55.0 ws@8.18.3
+          "$harness/node_modules/.bin/playwright" install --with-deps chromium
+
+      - name: Prove multi-tab physical connection sharing and reconnect
+        env:
+          ORES_SW_SOURCE: ${{ github.workspace }}/source
+          ORES_SW_HARNESS_DIR: ${{ runner.temp }}/ores-sw-browser-harness
+        run: node tools/verify_ores_sw_20_browser.mjs
+
+  zed-package:
+    needs: [source-lock, js-contracts]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Check out exact package candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: ORESoftware/ores-sw.js
+          ref: ${{ env.ORES_SW_SHA }}
+          persist-credentials: false
+      - name: Check out immutable zed-cli authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: zed-pkg/zed-cli
+          ref: ${{ env.ZED_CLI_SHA }}
+          path: tmp/zed-cli
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.9.0'
+      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: stable
+      - name: Build browser-worker payload
+        run: |
+          npm install --ignore-scripts --no-audit --no-fund
+          npm run check
+      - name: Build exact zed CLI
+        working-directory: tmp/zed-cli
+        run: cargo build --release --locked --bin zed
+      - name: Validate, inspect, pack, and roundtrip
+        shell: bash
+        run: |
+          set -euo pipefail
+          zed='./tmp/zed-cli/target/release/zed'
+          "$zed" validate --manifest .zpkg.toml --json
+          "$zed" inspect --root "$GITHUB_WORKSPACE" --format json > "$RUNNER_TEMP/zed-inspect.json"
+          test -s "$RUNNER_TEMP/zed-inspect.json"
+          "$zed" pack
+          "$zed" r2g --clean
