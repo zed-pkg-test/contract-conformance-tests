@@ -70,6 +70,173 @@ struct Row<'a> {
     expectation: &'a str,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct CaseShape {
+    case_name: &'static str,
+    transport: &'static str,
+    framing: &'static str,
+    codec: &'static str,
+    wire_id: &'static str,
+    media_type: &'static str,
+    valid: bool,
+}
+
+const REQUIRED_CASE_SHAPES: &[CaseShape] = &[
+    CaseShape {
+        case_name: "http_accept_weighted",
+        transport: "http",
+        framing: "native-message",
+        codec: "structured",
+        wire_id: "-",
+        media_type: "-",
+        valid: true,
+    },
+    CaseShape {
+        case_name: "http_accept_wildcard",
+        transport: "http",
+        framing: "native-message",
+        codec: "structured",
+        wire_id: "-",
+        media_type: "-",
+        valid: true,
+    },
+    CaseShape {
+        case_name: "negative_codec_name_alias",
+        transport: "metadata",
+        framing: "contract",
+        codec: "msgpack",
+        wire_id: "-",
+        media_type: "-",
+        valid: false,
+    },
+    CaseShape {
+        case_name: "negative_codec_name_case",
+        transport: "metadata",
+        framing: "contract",
+        codec: "JSON",
+        wire_id: "-",
+        media_type: "-",
+        valid: false,
+    },
+    CaseShape {
+        case_name: "negative_codec_name_whitespace",
+        transport: "metadata",
+        framing: "contract",
+        codec: " raw ",
+        wire_id: "-",
+        media_type: "-",
+        valid: false,
+    },
+    CaseShape {
+        case_name: "negative_trailing_junk_messagepack",
+        transport: "all",
+        framing: "transport-specific",
+        codec: "messagepack",
+        wire_id: "2",
+        media_type: "application/msgpack",
+        valid: false,
+    },
+    CaseShape {
+        case_name: "negative_trailing_junk_cbor",
+        transport: "all",
+        framing: "transport-specific",
+        codec: "cbor",
+        wire_id: "3",
+        media_type: "application/cbor",
+        valid: false,
+    },
+    CaseShape {
+        case_name: "negative_trailing_junk_protobuf",
+        transport: "all",
+        framing: "transport-specific",
+        codec: "protobuf",
+        wire_id: "4",
+        media_type: "application/x-protobuf",
+        valid: false,
+    },
+    CaseShape {
+        case_name: "negative_truncated_structured",
+        transport: "all",
+        framing: "transport-specific",
+        codec: "structured",
+        wire_id: "-",
+        media_type: "-",
+        valid: false,
+    },
+    CaseShape {
+        case_name: "negative_duplicate_control_field",
+        transport: "all",
+        framing: "transport-specific",
+        codec: "structured",
+        wire_id: "-",
+        media_type: "-",
+        valid: false,
+    },
+    CaseShape {
+        case_name: "negative_binary_semantic_extension",
+        transport: "all",
+        framing: "transport-specific",
+        codec: "structured",
+        wire_id: "-",
+        media_type: "-",
+        valid: false,
+    },
+    CaseShape {
+        case_name: "negative_raw_tcp_missing_control",
+        transport: "tcp",
+        framing: "length-prefixed-32be+codec",
+        codec: "raw",
+        wire_id: "5",
+        media_type: "application/octet-stream",
+        valid: false,
+    },
+    CaseShape {
+        case_name: "negative_raw_ws_missing_control",
+        transport: "websocket",
+        framing: "binary-message+codec",
+        codec: "raw",
+        wire_id: "5",
+        media_type: "application/octet-stream",
+        valid: false,
+    },
+    CaseShape {
+        case_name: "negative_decompression_bomb",
+        transport: "all",
+        framing: "transport-specific",
+        codec: "structured",
+        wire_id: "-",
+        media_type: "-",
+        valid: false,
+    },
+    CaseShape {
+        case_name: "semantic_equivalence",
+        transport: "all",
+        framing: "transport-specific",
+        codec: "structured",
+        wire_id: "-",
+        media_type: "-",
+        valid: true,
+    },
+    CaseShape {
+        case_name: "compression_separate",
+        transport: "all",
+        framing: "transport-specific",
+        codec: "structured",
+        wire_id: "-",
+        media_type: "-",
+        valid: true,
+    },
+    CaseShape {
+        case_name: "stream_codec_stability",
+        transport: "all",
+        framing: "streaming",
+        codec: "structured",
+        wire_id: "-",
+        media_type: "-",
+        valid: true,
+    },
+];
+
 fn canonical_codecs() -> BTreeMap<&'static str, CodecSpec> {
     return BTreeMap::from([
         (
@@ -170,30 +337,33 @@ fn parse_matrix(source: &str) -> Result<Vec<Row<'_>>, String> {
     return Ok(rows);
 }
 
-fn require_case_shape(
-    rows: &[Row<'_>],
-    case_name: &str,
-    transport: &str,
-    framing: &str,
-    codec: &str,
-    wire_id: &str,
-    media_type: &str,
-    valid: bool,
-) -> Result<(), String> {
-    let Some(row) = rows.iter().find(|row| row.case_name == case_name) else {
-        return Err(format!("binary payload matrix is missing required case {case_name:?}"));
+fn require_case_shape(rows: &[Row<'_>], expected: CaseShape) -> Result<(), String> {
+    let Some(row) = rows
+        .iter()
+        .find(|row| row.case_name == expected.case_name)
+    else {
+        return Err(format!(
+            "binary payload matrix is missing required case {:?}",
+            expected.case_name,
+        ));
     };
 
-    if row.transport != transport
-        || row.framing != framing
-        || row.codec != codec
-        || row.wire_id != wire_id
-        || row.media_type != media_type
-        || row.valid != valid
+    if row.transport != expected.transport
+        || row.framing != expected.framing
+        || row.codec != expected.codec
+        || row.wire_id != expected.wire_id
+        || row.media_type != expected.media_type
+        || row.valid != expected.valid
     {
         return Err(format!(
-            "binary payload case {case_name:?} has drifted structural semantics: got transport={:?} framing={:?} codec={:?} wire_id={:?} media_type={:?} valid={:?}",
-            row.transport, row.framing, row.codec, row.wire_id, row.media_type, row.valid,
+            "binary payload case {:?} has drifted structural semantics: got transport={:?} framing={:?} codec={:?} wire_id={:?} media_type={:?} valid={:?}",
+            expected.case_name,
+            row.transport,
+            row.framing,
+            row.codec,
+            row.wire_id,
+            row.media_type,
+            row.valid,
         ));
     }
 
@@ -274,26 +444,8 @@ fn validate(rows: &[Row<'_>]) -> Result<(), String> {
         }
     }
 
-    for shape in [
-        ("http_accept_weighted", "http", "native-message", "structured", "-", "-", true),
-        ("http_accept_wildcard", "http", "native-message", "structured", "-", "-", true),
-        ("negative_codec_name_alias", "metadata", "contract", "msgpack", "-", "-", false),
-        ("negative_codec_name_case", "metadata", "contract", "JSON", "-", "-", false),
-        ("negative_codec_name_whitespace", "metadata", "contract", " raw ", "-", "-", false),
-        ("negative_trailing_junk_messagepack", "all", "transport-specific", "messagepack", "2", "application/msgpack", false),
-        ("negative_trailing_junk_cbor", "all", "transport-specific", "cbor", "3", "application/cbor", false),
-        ("negative_trailing_junk_protobuf", "all", "transport-specific", "protobuf", "4", "application/x-protobuf", false),
-        ("negative_truncated_structured", "all", "transport-specific", "structured", "-", "-", false),
-        ("negative_duplicate_control_field", "all", "transport-specific", "structured", "-", "-", false),
-        ("negative_binary_semantic_extension", "all", "transport-specific", "structured", "-", "-", false),
-        ("negative_raw_tcp_missing_control", "tcp", "length-prefixed-32be+codec", "raw", "5", "application/octet-stream", false),
-        ("negative_raw_ws_missing_control", "websocket", "binary-message+codec", "raw", "5", "application/octet-stream", false),
-        ("negative_decompression_bomb", "all", "transport-specific", "structured", "-", "-", false),
-        ("semantic_equivalence", "all", "transport-specific", "structured", "-", "-", true),
-        ("compression_separate", "all", "transport-specific", "structured", "-", "-", true),
-        ("stream_codec_stability", "all", "streaming", "structured", "-", "-", true),
-    ] {
-        require_case_shape(rows, shape.0, shape.1, shape.2, shape.3, shape.4, shape.5, shape.6)?;
+    for expected in REQUIRED_CASE_SHAPES {
+        require_case_shape(rows, *expected)?;
     }
 
     let canonical_positive = rows
