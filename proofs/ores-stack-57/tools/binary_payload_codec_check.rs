@@ -170,6 +170,36 @@ fn parse_matrix(source: &str) -> Result<Vec<Row<'_>>, String> {
     return Ok(rows);
 }
 
+fn require_case_shape(
+    rows: &[Row<'_>],
+    case_name: &str,
+    transport: &str,
+    framing: &str,
+    codec: &str,
+    wire_id: &str,
+    media_type: &str,
+    valid: bool,
+) -> Result<(), String> {
+    let Some(row) = rows.iter().find(|row| row.case_name == case_name) else {
+        return Err(format!("binary payload matrix is missing required case {case_name:?}"));
+    };
+
+    if row.transport != transport
+        || row.framing != framing
+        || row.codec != codec
+        || row.wire_id != wire_id
+        || row.media_type != media_type
+        || row.valid != valid
+    {
+        return Err(format!(
+            "binary payload case {case_name:?} has drifted structural semantics: got transport={:?} framing={:?} codec={:?} wire_id={:?} media_type={:?} valid={:?}",
+            row.transport, row.framing, row.codec, row.wire_id, row.media_type, row.valid,
+        ));
+    }
+
+    return Ok(());
+}
+
 fn validate(rows: &[Row<'_>]) -> Result<(), String> {
     let codecs = canonical_codecs();
     let mut seen_cases = BTreeSet::new();
@@ -191,21 +221,31 @@ fn validate(rows: &[Row<'_>]) -> Result<(), String> {
             ));
         }
 
-        if row.valid {
-            if let Some(spec) = codecs.get(row.codec) {
-                if row.wire_id != spec.wire_id {
-                    return Err(format!(
-                        "positive case {:?} uses wire id {:?} for codec {:?}; expected {:?}",
-                        row.case_name, row.wire_id, row.codec, spec.wire_id,
-                    ));
-                }
-                if row.media_type != spec.media_type {
-                    return Err(format!(
-                        "positive case {:?} uses media type {:?} for codec {:?}; expected {:?}",
-                        row.case_name, row.media_type, row.codec, spec.media_type,
-                    ));
-                }
+        if let Some(spec) = codecs.get(row.codec) {
+            if row.wire_id != spec.wire_id {
+                return Err(format!(
+                    "case {:?} uses wire id {:?} for codec {:?}; expected {:?}",
+                    row.case_name, row.wire_id, row.codec, spec.wire_id,
+                ));
             }
+            if row.media_type != spec.media_type {
+                return Err(format!(
+                    "case {:?} uses media type {:?} for codec {:?}; expected {:?}",
+                    row.case_name, row.media_type, row.codec, spec.media_type,
+                ));
+            }
+        } else if row.valid && row.codec != "structured" {
+            return Err(format!(
+                "positive case {:?} uses unknown codec {:?}",
+                row.case_name, row.codec,
+            ));
+        }
+
+        if row.codec == "structured" && (row.wire_id != "-" || row.media_type != "-") {
+            return Err(format!(
+                "aggregate structured case {:?} must not invent a single wire id or media type",
+                row.case_name,
+            ));
         }
 
         if row.valid && row.framing == "ndjson" && row.codec != "json" {
@@ -232,6 +272,28 @@ fn validate(rows: &[Row<'_>]) -> Result<(), String> {
                 "binary payload matrix is missing required hardened case {required:?}"
             ));
         }
+    }
+
+    for shape in [
+        ("http_accept_weighted", "http", "native-message", "structured", "-", "-", true),
+        ("http_accept_wildcard", "http", "native-message", "structured", "-", "-", true),
+        ("negative_codec_name_alias", "metadata", "contract", "msgpack", "-", "-", false),
+        ("negative_codec_name_case", "metadata", "contract", "JSON", "-", "-", false),
+        ("negative_codec_name_whitespace", "metadata", "contract", " raw ", "-", "-", false),
+        ("negative_trailing_junk_messagepack", "all", "transport-specific", "messagepack", "2", "application/msgpack", false),
+        ("negative_trailing_junk_cbor", "all", "transport-specific", "cbor", "3", "application/cbor", false),
+        ("negative_trailing_junk_protobuf", "all", "transport-specific", "protobuf", "4", "application/x-protobuf", false),
+        ("negative_truncated_structured", "all", "transport-specific", "structured", "-", "-", false),
+        ("negative_duplicate_control_field", "all", "transport-specific", "structured", "-", "-", false),
+        ("negative_binary_semantic_extension", "all", "transport-specific", "structured", "-", "-", false),
+        ("negative_raw_tcp_missing_control", "tcp", "length-prefixed-32be+codec", "raw", "5", "application/octet-stream", false),
+        ("negative_raw_ws_missing_control", "websocket", "binary-message+codec", "raw", "5", "application/octet-stream", false),
+        ("negative_decompression_bomb", "all", "transport-specific", "structured", "-", "-", false),
+        ("semantic_equivalence", "all", "transport-specific", "structured", "-", "-", true),
+        ("compression_separate", "all", "transport-specific", "structured", "-", "-", true),
+        ("stream_codec_stability", "all", "streaming", "structured", "-", "-", true),
+    ] {
+        require_case_shape(rows, shape.0, shape.1, shape.2, shape.3, shape.4, shape.5, shape.6)?;
     }
 
     let canonical_positive = rows
@@ -298,6 +360,28 @@ mod tests {
             1,
         );
         let rows = parse_matrix(&source).expect("parse drift matrix");
+        assert!(validate(&rows).is_err());
+    }
+
+    #[test]
+    fn canonical_wire_metadata_drift_is_rejected_even_for_negative_rows() {
+        let source = MATRIX.replacen(
+            "negative_trailing_junk_cbor\tall\ttransport-specific\tcbor\t3\tapplication/cbor",
+            "negative_trailing_junk_cbor\tall\ttransport-specific\tcbor\t4\tapplication/x-cbor",
+            1,
+        );
+        let rows = parse_matrix(&source).expect("parse drift matrix");
+        assert!(validate(&rows).is_err());
+    }
+
+    #[test]
+    fn required_hardening_case_shape_is_rejected_when_weakened() {
+        let source = MATRIX.replacen(
+            "negative_trailing_junk_cbor\tall\ttransport-specific\tcbor\t3\tapplication/cbor",
+            "negative_trailing_junk_cbor\thttp\tnative-message\tcbor\t3\tapplication/cbor",
+            1,
+        );
+        let rows = parse_matrix(&source).expect("parse weakened matrix");
         assert!(validate(&rows).is_err());
     }
 
