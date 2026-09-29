@@ -338,10 +338,7 @@ fn parse_matrix(source: &str) -> Result<Vec<Row<'_>>, String> {
 }
 
 fn require_case_shape(rows: &[Row<'_>], expected: CaseShape) -> Result<(), String> {
-    let Some(row) = rows
-        .iter()
-        .find(|row| row.case_name == expected.case_name)
-    else {
+    let Some(row) = rows.iter().find(|row| row.case_name == expected.case_name) else {
         return Err(format!(
             "binary payload matrix is missing required case {:?}",
             expected.case_name,
