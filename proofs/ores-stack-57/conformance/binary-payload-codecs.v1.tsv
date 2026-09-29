@@ -1,0 +1,46 @@
+case	transport	framing	codec	wire_id	media_type	valid	expectation
+http_json	http	native-message	json	1	application/json	true	request Content-Type and response Accept/Content-Type agree with operation contract
+http_messagepack	http	native-message	messagepack	2	application/msgpack	true	direct MessagePack bytes; no JSON-text or base64 intermediary
+http_cbor	http	native-message	cbor	3	application/cbor	true	direct CBOR bytes; no JSON-text or base64 intermediary
+http_protobuf	http	native-message	protobuf	4	application/x-protobuf	true	generated projection bytes then shared semantic validation
+http_raw	http	native-message	raw	5	application/octet-stream	true	only for operation with explicit binary semantic representation; HTTP route/request lifecycle supplies operation and correlation control
+http_accept_weighted	http	native-message	structured	-	-	true	choose highest-quality operation-admitted representation the runtime can produce; q=0 is unacceptable
+http_accept_wildcard	http	native-message	structured	-	-	true	wildcard or absent Accept resolves deterministically to operation default/admitted codec and emitted Content-Type states the actual codec
+tcp_legacy_ndjson_json	tcp	ndjson	json	1	application/json	true	legacy JSON compatibility only
+tcp_legacy_ndjson_messagepack	tcp	ndjson	messagepack	2	application/msgpack	false	NDJSON is JSON-only
+tcp_legacy_length_json	tcp	length-prefixed-json	json	1	application/json	true	legacy compatibility framing; payload is JSON and has no codec byte
+tcp_binary_json	tcp	length-prefixed-32be+codec	json	1	application/json	true	frame payload starts with codec id then typed RPC envelope encoded as JSON
+tcp_binary_messagepack	tcp	length-prefixed-32be+codec	messagepack	2	application/msgpack	true	frame payload starts with codec id then typed RPC envelope encoded as MessagePack
+tcp_binary_cbor	tcp	length-prefixed-32be+codec	cbor	3	application/cbor	true	frame payload starts with codec id then typed RPC envelope encoded as CBOR
+tcp_binary_protobuf	tcp	length-prefixed-32be+codec	protobuf	4	application/x-protobuf	true	frame payload starts with codec id then generated Protobuf control envelope; shared semantic validation follows projection decode
+tcp_binary_raw	tcp	length-prefixed-32be+codec	raw	5	application/octet-stream	true	raw body bytes remain inside/after typed RPC control metadata carrying protocol version operation key request/correlation id and message kind; bare opaque body is not generic RPC
+ws_text_json	websocket	text-message	json	1	application/json	true	legacy JSON envelope text message
+ws_text_binary	websocket	text-message	messagepack	2	application/msgpack	false	binary codecs must not be UTF-8/base64 coerced into text messages
+ws_binary_json	websocket	binary-message+codec	json	1	application/json	true	byte 0 codec id; remaining bytes contain typed RPC envelope encoded as JSON
+ws_binary_messagepack	websocket	binary-message+codec	messagepack	2	application/msgpack	true	byte 0 codec id; remaining bytes contain typed RPC envelope encoded as MessagePack
+ws_binary_cbor	websocket	binary-message+codec	cbor	3	application/cbor	true	byte 0 codec id; remaining bytes contain typed RPC envelope encoded as CBOR
+ws_binary_protobuf	websocket	binary-message+codec	protobuf	4	application/x-protobuf	true	byte 0 codec id; remaining bytes contain generated Protobuf control envelope
+ws_binary_raw	websocket	binary-message+codec	raw	5	application/octet-stream	true	binary message preserves opaque body bytes exactly but typed call/data control metadata remains mandatory for operation routing and correlation
+negative_unknown_codec_id	tcp	length-prefixed-32be+codec	unknown	255	-	false	fail before handler dispatch and discard poisoned pooled connection
+negative_empty_ws_binary	websocket	binary-message+codec	unknown	-	-	false	binary application message must contain codec-id byte
+negative_http_request_media	http	native-message	unknown	-	application/x-unknown	false	HTTP 415 before handler dispatch
+negative_http_response_accept	http	native-message	unknown	-	application/x-unknown	false	HTTP 406 when no requested response representation can be produced
+negative_http_response_mismatch	http	native-message	json	1	application/json	false	client rejects response whose actual Content-Type differs from negotiated codec
+negative_over_limit	tcp	length-prefixed-32be+codec	raw	5	application/octet-stream	false	reject declared/received frame before expensive decode or allocation
+negative_codec_not_allowed	websocket	binary-message+codec	cbor	3	application/cbor	false	known codec still fails when operation allowed_codecs excludes it
+negative_codec_name_alias	metadata	contract	msgpack	-	-	false	digest-bound metadata accepts only canonical codec names; convenience aliases fail closed
+negative_codec_name_case	metadata	contract	JSON	-	-	false	digest-bound metadata is not case-folded; runtime HTTP media-type matching is a separate case-insensitive concern
+negative_codec_name_whitespace	metadata	contract	 raw 	-	-	false	digest-bound metadata is not trimmed before canonical-name admission
+negative_trailing_junk_messagepack	all	transport-specific	messagepack	2	application/msgpack	false	decoder must consume the complete structured payload and reject a valid value followed by trailing bytes
+negative_trailing_junk_cbor	all	transport-specific	cbor	3	application/cbor	false	decoder must consume the complete structured payload and reject a valid value followed by trailing bytes
+negative_trailing_junk_protobuf	all	transport-specific	protobuf	4	application/x-protobuf	false	generated projection decoder/admission bridge rejects unconsumed trailing bytes or otherwise proves exact message framing before semantic validation
+negative_truncated_structured	all	transport-specific	structured	-	-	false	truncated JSON MessagePack CBOR or Protobuf fails before handler dispatch
+negative_duplicate_control_field	all	transport-specific	structured	-	-	false	duplicate or ambiguous protocol version operation key request id message kind or codec metadata fails closed instead of last-wins decoding
+negative_binary_semantic_extension	all	transport-specific	structured	-	-	false	MessagePack/CBOR values outside authored TypeSpec plus JSON-Schema domain such as non-string map keys unsupported tags byte strings or non-finite numbers do not create new operation semantics
+negative_raw_tcp_missing_control	tcp	length-prefixed-32be+codec	raw	5	application/octet-stream	false	opaque raw bytes without typed operation/correlation/message-kind control metadata are not dispatchable generic RPC
+negative_raw_ws_missing_control	websocket	binary-message+codec	raw	5	application/octet-stream	false	opaque raw binary message without typed operation/correlation/message-kind control metadata is not dispatchable generic RPC
+negative_decompression_bomb	all	transport-specific	structured	-	-	false	post-decompression byte ceiling aborts before unbounded allocation or handler dispatch even when encoded payload is within its own ceiling
+semantic_equivalence	all	transport-specific	structured	-	-	true	JSON MessagePack CBOR and Protobuf representations produce equivalent admitted semantic value when supported
+raw_non_utf8	all	binary-capable	raw	5	application/octet-stream	true	preserve NUL 0xff invalid UTF-8 and newline bytes without transcoding while retaining required control metadata on stateful transports
+compression_separate	all	transport-specific	structured	-	-	true	content-encoding/compression is negotiated separately from payload codec and enforces both encoded and decoded byte ceilings
+stream_codec_stability	all	streaming	structured	-	-	true	stream keeps negotiated codec for its lifetime unless an explicit future renegotiation contract exists

@@ -1,0 +1,76 @@
+name: ores-stack 57 binary payload exact-head proof
+
+on:
+  push:
+    branches:
+      - proof/ores-stack-57-binary-payload-20260929
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-source-proof:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      - name: Verify exact source blob identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object proofs/ores-stack-57/conformance/binary-payload-codecs.v1.tsv)" = "9e1302b259663e6e5c01af57e1f04aa72eacb5b7"
+          test "$(git hash-object proofs/ores-stack-57/tools/binary_payload_codec_check.rs)" = "b4fc489a59ef88661f6a30086ebbf69efbb2d382"
+          grep -Fx 'source_head=023437880454fb662ccb287b1dd0629857725e89' proofs/ores-stack-57/receipt.txt
+
+      - name: Install pinned Rust toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.88.0 --profile minimal --component rustfmt --no-self-update
+
+      - name: Check exact source formatting
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustfmt +1.88.0 --edition 2024 --check proofs/ores-stack-57/tools/binary_payload_codec_check.rs
+
+      - name: Compile and run exact source tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc +1.88.0 --edition 2024 --test \
+            proofs/ores-stack-57/tools/binary_payload_codec_check.rs \
+            -o /tmp/ores_stack_57_binary_payload_tests
+          /tmp/ores_stack_57_binary_payload_tests
+
+      - name: Compile and run exact source validator
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustc +1.88.0 --edition 2024 \
+            proofs/ores-stack-57/tools/binary_payload_codec_check.rs \
+            -o /tmp/ores_stack_57_binary_payload_check
+          /tmp/ores_stack_57_binary_payload_check
+
+      - name: Adversarial row-shape mutation must fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/ores-stack-57-mutant
+          cp -R proofs/ores-stack-57 /tmp/ores-stack-57-mutant
+          awk -F '\t' 'BEGIN { OFS="\t" } $1 == "negative_trailing_junk_cbor" { $2="http"; $3="native-message" } { print }' \
+            /tmp/ores-stack-57-mutant/conformance/binary-payload-codecs.v1.tsv \
+            > /tmp/ores-stack-57-mutant/conformance/mutated.tsv
+          mv /tmp/ores-stack-57-mutant/conformance/mutated.tsv \
+            /tmp/ores-stack-57-mutant/conformance/binary-payload-codecs.v1.tsv
+          rustc +1.88.0 --edition 2024 \
+            /tmp/ores-stack-57-mutant/tools/binary_payload_codec_check.rs \
+            -o /tmp/ores_stack_57_mutant_check
+          if /tmp/ores_stack_57_mutant_check; then
+            echo 'checker admitted a required hardening case with the wrong transport/framing shape' >&2
+            exit 1
+          fi
