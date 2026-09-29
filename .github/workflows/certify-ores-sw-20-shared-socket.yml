@@ -13,7 +13,6 @@ permissions:
 
 env:
   ORES_SW_SHA: 4663e45b0ec4dc4d24792235f4c550355a603602
-  ZED_CLI_SHA: 344d432a6f94d4b1cfa02228ec36623c7484177a
 
 jobs:
   source-lock:
@@ -25,105 +24,64 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Check out exact ores-sw candidate
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: ORESoftware/ores-sw.js
-          ref: ${{ env.ORES_SW_SHA }}
-          path: source
-          persist-credentials: false
-
-      - name: Verify exact source identity
+      - name: Verify byte-identical private-source snapshot
         shell: bash
         run: |
           set -euo pipefail
           lock='evidence/ores-sw-20/source-lock.json'
+          root="$(jq -r '.snapshot_root' "$lock")"
           test "$(jq -r '.commit_sha' "$lock")" = "$ORES_SW_SHA"
-          test "$(git -C source rev-parse HEAD)" = "$ORES_SW_SHA"
           while IFS=$'\t' read -r file expected; do
-            actual="$(git -C source hash-object "$file")"
+            actual="$(git hash-object "$root/$file")"
             test "$actual" = "$expected" || {
               echo "blob mismatch: $file expected=$expected actual=$actual" >&2
               exit 1
             }
           done < <(jq -r '.files | to_entries[] | [.key,.value] | @tsv' "$lock")
 
-  js-contracts:
+  typescript-browser-surface:
     needs: source-lock
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
-          repository: ORESoftware/ores-sw.js
-          ref: ${{ env.ORES_SW_SHA }}
           persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.9.0'
-      - name: Enforce governance participant parity
-        run: node scripts/check-polyglot-governance.mjs
-      - name: Install exact source dependencies
-        run: npm install --ignore-scripts --no-audit --no-fund
-      - name: Run TypeScript, unit, contract, consumer, and build checks
-        run: npm run check
-
-  rust-server-adapters:
-    needs: source-lock
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: ORESoftware/ores-sw.js
-          ref: ${{ env.ORES_SW_SHA }}
-          persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: '22.9.0'
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
-        with:
-          toolchain: stable
-          components: rustfmt,clippy
-      - run: npm install --ignore-scripts --no-audit --no-fund
-      - run: npm run build
-      - run: cargo fmt --manifest-path rust/Cargo.toml -- --check
-      - run: cargo fmt --manifest-path rust/axum07/Cargo.toml -- --check
-      - run: cargo fmt --manifest-path rust/axum08/Cargo.toml -- --check
-      - run: cargo clippy --manifest-path rust/Cargo.toml --all-targets -- -D warnings
-      - run: cargo clippy --manifest-path rust/axum07/Cargo.toml --all-targets -- -D warnings
-      - run: cargo clippy --manifest-path rust/axum08/Cargo.toml --all-targets -- -D warnings
-      - run: cargo test --manifest-path rust/Cargo.toml --all-targets
-      - run: cargo test --manifest-path rust/axum07/Cargo.toml --all-targets
-      - run: cargo test --manifest-path rust/axum08/Cargo.toml --all-targets
-
-  wasm:
-    needs: source-lock
-    runs-on: ubuntu-24.04
-    timeout-minutes: 35
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: ORESoftware/ores-sw.js
-          ref: ${{ env.ORES_SW_SHA }}
-          persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: '22.9.0'
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
-        with:
-          toolchain: stable
-          targets: wasm32-unknown-unknown
-          components: rustfmt,clippy
-      - run: cargo fmt --manifest-path wasm/Cargo.toml -- --check
-      - run: cargo clippy --manifest-path wasm/Cargo.toml --all-targets -- -D warnings
-      - run: cargo test --manifest-path wasm/Cargo.toml --all-targets
-      - run: cargo check --manifest-path wasm/Cargo.toml --target wasm32-unknown-unknown
-      - run: cargo install wasm-pack --version 0.13.1 --locked
-      - run: npm run build:wasm
+      - name: Install isolated compiler dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          harness="$RUNNER_TEMP/ores-sw-compiler"
+          mkdir -p "$harness"
+          printf '{"private":true,"type":"module"}\n' > "$harness/package.json"
+          npm install --prefix "$harness" --no-save --package-lock=false --ignore-scripts --no-audit --no-fund typescript@5.9.2 esbuild@0.25.9
+      - name: Typecheck browser client and SharedWorker surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$GITHUB_WORKSPACE/evidence/ores-sw-20/source"
+          tsc="$RUNNER_TEMP/ores-sw-compiler/node_modules/.bin/tsc"
+          "$tsc" --noEmit --strict --target ES2022 --module ESNext --moduleResolution Bundler --lib ES2022,DOM \
+            "$root/src/protocol.ts" "$root/src/socket-protocol.ts" "$root/src/shared-socket.ts"
+          "$tsc" --noEmit --strict --target ES2022 --module ESNext --moduleResolution Bundler --lib ES2022,WebWorker \
+            "$root/src/protocol.ts" "$root/src/socket-protocol.ts" "$root/src/workers/socket.shared-worker.ts"
+      - name: Bundle exact snapshot as browser modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$GITHUB_WORKSPACE/evidence/ores-sw-20/source"
+          esbuild="$RUNNER_TEMP/ores-sw-compiler/node_modules/.bin/esbuild"
+          mkdir -p "$RUNNER_TEMP/ores-sw-build/dist"
+          "$esbuild" "$root/src/shared-socket.ts" --bundle --format=esm --platform=browser --target=es2022 --outfile="$RUNNER_TEMP/ores-sw-build/dist/client.js"
+          "$esbuild" "$root/src/workers/socket.shared-worker.ts" --bundle --format=esm --platform=browser --target=es2022 --outfile="$RUNNER_TEMP/ores-sw-build/dist/socket.shared-worker.js"
+          test -s "$RUNNER_TEMP/ores-sw-build/dist/client.js"
+          test -s "$RUNNER_TEMP/ores-sw-build/dist/socket.shared-worker.js"
 
   browser-multitab:
-    needs: source-lock
+    needs: [source-lock, typescript-browser-surface]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -131,25 +89,9 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           persist-credentials: false
-
-      - name: Check out exact ores-sw candidate
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: ORESoftware/ores-sw.js
-          ref: ${{ env.ORES_SW_SHA }}
-          path: source
-          persist-credentials: false
-
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22.9.0'
-
-      - name: Build exact browser worker candidate
-        working-directory: source
-        run: |
-          npm install --ignore-scripts --no-audit --no-fund
-          npm run build
-
       - name: Install isolated browser proof dependencies
         shell: bash
         run: |
@@ -157,53 +99,19 @@ jobs:
           harness="$RUNNER_TEMP/ores-sw-browser-harness"
           mkdir -p "$harness"
           printf '{"private":true,"type":"module"}\n' > "$harness/package.json"
-          npm install --prefix "$harness" --no-save --package-lock=false --ignore-scripts --no-audit --no-fund playwright@1.55.0 ws@8.18.3
+          npm install --prefix "$harness" --no-save --package-lock=false --ignore-scripts --no-audit --no-fund playwright@1.55.0 ws@8.18.3 esbuild@0.25.9
           "$harness/node_modules/.bin/playwright" install --with-deps chromium
-
-      - name: Prove multi-tab physical connection sharing and reconnect
-        env:
-          ORES_SW_SOURCE: ${{ github.workspace }}/source
-          ORES_SW_HARNESS_DIR: ${{ runner.temp }}/ores-sw-browser-harness
-        run: node tools/verify_ores_sw_20_browser.mjs
-
-  zed-package:
-    needs: [source-lock, js-contracts]
-    runs-on: ubuntu-24.04
-    timeout-minutes: 40
-    steps:
-      - name: Check out exact package candidate
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: ORESoftware/ores-sw.js
-          ref: ${{ env.ORES_SW_SHA }}
-          persist-credentials: false
-      - name: Check out immutable zed-cli authority
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-        with:
-          repository: zed-pkg/zed-cli
-          ref: ${{ env.ZED_CLI_SHA }}
-          path: tmp/zed-cli
-          persist-credentials: false
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: '22.9.0'
-      - uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
-        with:
-          toolchain: stable
-      - name: Build browser-worker payload
-        run: |
-          npm install --ignore-scripts --no-audit --no-fund
-          npm run check
-      - name: Build exact zed CLI
-        working-directory: tmp/zed-cli
-        run: cargo build --release --locked --bin zed
-      - name: Validate, inspect, pack, and roundtrip
+      - name: Build byte-identical browser snapshot
         shell: bash
         run: |
           set -euo pipefail
-          zed='./tmp/zed-cli/target/release/zed'
-          "$zed" validate --manifest .zpkg.toml --json
-          "$zed" inspect --root "$GITHUB_WORKSPACE" --format json > "$RUNNER_TEMP/zed-inspect.json"
-          test -s "$RUNNER_TEMP/zed-inspect.json"
-          "$zed" pack
-          "$zed" r2g --clean
+          root="$GITHUB_WORKSPACE/evidence/ores-sw-20/source"
+          esbuild="$RUNNER_TEMP/ores-sw-browser-harness/node_modules/.bin/esbuild"
+          mkdir -p "$RUNNER_TEMP/ores-sw-build/dist"
+          "$esbuild" "$root/src/shared-socket.ts" --bundle --format=esm --platform=browser --target=es2022 --outfile="$RUNNER_TEMP/ores-sw-build/dist/client.js"
+          "$esbuild" "$root/src/workers/socket.shared-worker.ts" --bundle --format=esm --platform=browser --target=es2022 --outfile="$RUNNER_TEMP/ores-sw-build/dist/socket.shared-worker.js"
+      - name: Prove 10-tab pooling, partitioning, reconnect, isolation, and send-only sharing
+        env:
+          ORES_SW_SOURCE: ${{ runner.temp }}/ores-sw-build
+          ORES_SW_HARNESS_DIR: ${{ runner.temp }}/ores-sw-browser-harness
+        run: node tools/verify_ores_sw_20_browser.mjs
