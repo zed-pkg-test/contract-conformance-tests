@@ -55,3 +55,22 @@ jobs:
             proofs/ores-stack-57/tools/binary_payload_codec_check.rs \
             -o /tmp/ores_stack_57_binary_payload_check
           /tmp/ores_stack_57_binary_payload_check
+
+      - name: Adversarial row-shape mutation must fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/ores-stack-57-mutant
+          cp -R proofs/ores-stack-57 /tmp/ores-stack-57-mutant
+          awk -F '\t' 'BEGIN { OFS="\t" } $1 == "negative_trailing_junk_cbor" { $2="http"; $3="native-message" } { print }' \
+            /tmp/ores-stack-57-mutant/conformance/binary-payload-codecs.v1.tsv \
+            > /tmp/ores-stack-57-mutant/conformance/mutated.tsv
+          mv /tmp/ores-stack-57-mutant/conformance/mutated.tsv \
+            /tmp/ores-stack-57-mutant/conformance/binary-payload-codecs.v1.tsv
+          rustc +1.88.0 --edition 2024 \
+            /tmp/ores-stack-57-mutant/tools/binary_payload_codec_check.rs \
+            -o /tmp/ores_stack_57_mutant_check
+          if /tmp/ores_stack_57_mutant_check; then
+            echo 'checker admitted a required hardening case with the wrong transport/framing shape' >&2
+            exit 1
+          fi
