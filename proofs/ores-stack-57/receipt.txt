@@ -1,9 +1,9 @@
 proof_schema=ores.exact-source-proof/v1
 source_repository=ores-stack/ores-stack-cli
 source_pull_request=57
-source_head=ed54a8f66ee556d115f9a41e2fb97ce37d205c76
+source_head=cf958b0b3598e97b7602bf6ba5a8ea1944f51115
 matrix_path=conformance/binary-payload-codecs.v1.tsv
 matrix_git_blob=9e1302b259663e6e5c01af57e1f04aa72eacb5b7
 checker_path=tools/binary_payload_codec_check.rs
-checker_git_blob=e209ffbc310b9de2bbb8b2982572df98656ecd41
+checker_git_blob=fbbf76fb6a84e70685842f2ed0a3aad05eb72d5d
 rust_toolchain=1.88.0
