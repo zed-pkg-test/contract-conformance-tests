@@ -1,0 +1,10 @@
+[package]
+name = "ores-common-desktop-conformance"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ores-common-desktop-router = { path = "../../router/rust" }
+thiserror.workspace = true
