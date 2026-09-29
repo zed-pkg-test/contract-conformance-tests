@@ -1,0 +1,93 @@
+name: Generate and prove frozen TypeScript lockfiles
+
+on:
+  push:
+    branches:
+      - proof/lockfile-generation-20260928
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lockfiles:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - athleto
+          - claritas
+    steps:
+      - name: Check out exact proof carrier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Set up pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.16.0
+      - name: Pin npm
+        run: |
+          set -euo pipefail
+          npm install --global npm@10.9.2 --ignore-scripts --no-audit --no-fund
+          test "$(node --version)" = 'v22.16.0'
+          test "$(npm --version)" = '10.9.2'
+      - name: Verify mirrored source identity
+        shell: bash
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          root="proof/lockfiles/$PACKAGE"
+          case "$PACKAGE" in
+            athleto)
+              test "$(git hash-object "$root/package.json")" = '8ccbfd0dcd95bee653f33f5350ff83b558a6c14f'
+              test "$(git hash-object "$root/tsconfig.json")" = '512f25302bd004d17b47c2614627983066dc0f43'
+              test "$(git hash-object "$root/src/index.ts")" = '6423ffc5cadf42200fe1a6e76ba14a0a7fb1dd35'
+              test "$(git hash-object "$root/test/index.test.mjs")" = '598589f4810f705e46c6b49a97da037ca4b5e031'
+              ;;
+            claritas)
+              test "$(git hash-object "$root/package.json")" = 'c56e53e302eef5c28cb132b32ffe0973e4a07f7b'
+              test "$(git hash-object "$root/tsconfig.json")" = '512f25302bd004d17b47c2614627983066dc0f43'
+              test "$(git hash-object "$root/src/index.ts")" = 'c950afd0020c9bb52bf2ea8eec7281b4be8b9801'
+              test "$(git hash-object "$root/test/index.test.mjs")" = '7c3ac035124500f3103f8395d4de9c890e056ed0'
+              ;;
+            *) exit 64 ;;
+          esac
+      - name: Generate reviewed dependency closure
+        working-directory: proof/lockfiles/${{ matrix.package }}
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Reinstall only from lockfile
+        working-directory: proof/lockfiles/${{ matrix.package }}
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build and execute exact mirrored tests
+        working-directory: proof/lockfiles/${{ matrix.package }}
+        run: npm test
+      - name: Validate lockfile invariants
+        working-directory: proof/lockfiles/${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('fs');
+          const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+          if (lock.lockfileVersion !== 3) throw new Error(`expected lockfileVersion=3, got ${lock.lockfileVersion}`);
+          const root = lock.packages?.[''];
+          if (!root?.devDependencies?.typescript) throw new Error('root TypeScript dependency is missing');
+          const ts = lock.packages?.['node_modules/typescript'];
+          if (!ts?.version || !ts?.integrity || !ts?.resolved) throw new Error('resolved TypeScript package is not integrity-bound');
+          console.log(`typescript=${ts.version}`);
+          NODE
+      - name: Upload proven lockfile
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ matrix.package }}-package-lock
+          path: proof/lockfiles/${{ matrix.package }}/package-lock.json
+          if-no-files-found: error
+          retention-days: 1
