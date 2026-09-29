@@ -1,0 +1,80 @@
+name: Prove Athlet-O fleet hardening exact blobs
+
+on:
+  push:
+    branches:
+      - proof/fleet-hardening-20260928-athleto
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact proof carrier head
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Decode and bind exact private product blobs
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=proof/fleet-hardening-20260928
+          for spec in \
+            'athleto-pub-lib-core/ci.yml ee5638bab9e5671b70b7d33394cabc64fa39180d' \
+            'athleto-supabase/validate.yml a35843332a84bbcb77135bc1712d453c0e71f4ea' \
+            'athleto-infra/ci.yml 1881dd805f462254353ec84538554ef9faf7ecd2' \
+            'athleto-backend/ci.yml 3c5f6c8a4a526d00c2aee88b9ab5dc79664d42b6'; do
+            rel=${spec% *}
+            expected=${spec##* }
+            base64 -d "$root/$rel.b64" > "$root/$rel"
+            actual=$(git hash-object "$root/$rel")
+            test "$actual" = "$expected"
+          done
+      - name: Validate exact candidate workflow syntax
+        uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 # v1.7.12
+        with:
+          args: >-
+            proof/fleet-hardening-20260928/athleto-pub-lib-core/ci.yml
+            proof/fleet-hardening-20260928/athleto-supabase/validate.yml
+            proof/fleet-hardening-20260928/athleto-infra/ci.yml
+            proof/fleet-hardening-20260928/athleto-backend/ci.yml
+      - name: Prove timeout, cancellation, pinning, and full-workflow lint guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=proof/fleet-hardening-20260928
+          pub="$root/athleto-pub-lib-core/ci.yml"
+          sup="$root/athleto-supabase/validate.yml"
+          infra="$root/athleto-infra/ci.yml"
+          backend="$root/athleto-backend/ci.yml"
+
+          grep -Fq 'cancel-in-progress: true' "$pub"
+          test "$(grep -c 'timeout-minutes:' "$pub")" -eq 4
+          grep -Fq 'github:ORESoftware/ores-contracts#60a23ec75c6ce904857b23fa9ee33df06d0069e0' "$pub"
+          ! grep -Fq 'github:ORESoftware/ores-contracts check' "$pub"
+
+          grep -Fq 'cancel-in-progress: true' "$sup"
+          grep -Fq 'timeout-minutes: 15' "$sup"
+          grep -Fq 'npm ci --ignore-scripts' "$sup"
+
+          grep -Fq 'Validate every GitHub Actions workflow' "$infra"
+          grep -Fq 'docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667' "$infra"
+          ! grep -Fq 'args:' "$infra"
+
+          grep -Fq 'Validate every GitHub Actions workflow' "$backend"
+          grep -Fq 'docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667' "$backend"
+          ! grep -Fq 'args:' "$backend"
+
+          for f in "$pub" "$sup" "$infra" "$backend"; do
+            grep -Fq 'contents: read' "$f"
+            ! grep -Eq 'uses: [^@[:space:]]+@(main|master|stable|v[0-9]+)$' "$f"
+          done
