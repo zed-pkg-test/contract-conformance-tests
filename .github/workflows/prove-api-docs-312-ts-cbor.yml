@@ -32,8 +32,8 @@ jobs:
         run: |
           set -euo pipefail
           test "$(git -C source rev-parse HEAD)" = "11db582f0e67880876d32e9a80c1a4c7672d9090"
-          test "$(git -C source hash-object clients/typescript/src/fluent-types.d.ts)" = "d7720b7ff042ab33fdcb4017ca7e42ac06ba25d7"
-          test "$(git -C source hash-object clients/typescript/src/fluent-v2.type-test.ts)" = "c07478fac45051e5159925e1f49e3dd6ca9641ac"
+          test "$(git -C source hash-object clients/typescript/src/fluent-types.d.ts)" = "d7720dc2f675d8e06268e4af113500d3575c6502"
+          test "$(git -C source hash-object clients/typescript/src/fluent-v2.type-test.ts)" = "c07478ec07e9ed6a2f94f1513f0de941a6591bbd"
           test "$(git -C source hash-object clients/typescript/src/options.generated.d.ts)" = "927e81fe75f0216e204759e1a2e0626d054b2ca6"
           grep -Fx 'source_head=11db582f0e67880876d32e9a80c1a4c7672d9090' proofs/api-docs-312/receipt.txt
 
@@ -97,5 +97,5 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git -C source hash-object clients/typescript/src/fluent-types.d.ts)" = "d7720b7ff042ab33fdcb4017ca7e42ac06ba25d7"
+          test "$(git -C source hash-object clients/typescript/src/fluent-types.d.ts)" = "d7720dc2f675d8e06268e4af113500d3575c6502"
           git -C source diff --exit-code -- clients/typescript/src/fluent-types.d.ts clients/typescript/src/fluent-v2.type-test.ts clients/typescript/src/options.generated.d.ts
