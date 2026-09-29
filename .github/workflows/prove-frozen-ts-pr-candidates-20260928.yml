@@ -1,0 +1,74 @@
+name: Prove frozen TypeScript PR candidates
+
+on:
+  push:
+    branches:
+      - proof/lockfile-generation-20260928
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  exact-candidates:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out proof carrier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Bind final source PR blobs exactly
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object proof/lockfile-candidates/athleto/package-lock.json)" = 'b532e5addd2e43d702da4321900064ec1147b321'
+          test "$(git hash-object proof/lockfile-candidates/athleto/ci.yml)" = 'c47ebd82e4145cf068cc37d9169857a563959c2a'
+          test "$(git hash-object proof/lockfile-candidates/claritas/package-lock.json)" = 'fab28f877f266cc3e4e034b413e79254be38da4c'
+          test "$(git hash-object proof/lockfile-candidates/claritas/ci.yml)" = 'e9c9116fab5afb8b3c40846cee700e8ab39303e7'
+      - name: Actionlint final source workflows
+        uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 # v1.7.12
+        with:
+          args: >-
+            proof/lockfile-candidates/athleto/ci.yml
+            proof/lockfile-candidates/claritas/ci.yml
+      - name: Set up exact Node used by source candidates
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.16.0
+      - name: Prove Athlet-O source lockfile installs and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp proof/lockfile-candidates/athleto/package-lock.json proof/lockfiles/athleto/package-lock.json
+          cd proof/lockfiles/athleto
+          rm -rf node_modules dist
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm test
+          test "$(git hash-object package-lock.json)" = 'b532e5addd2e43d702da4321900064ec1147b321'
+      - name: Prove Claritas source lockfile installs and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp proof/lockfile-candidates/claritas/package-lock.json proof/lockfiles/claritas/package-lock.json
+          cd proof/lockfiles/claritas
+          rm -rf node_modules dist
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm test
+          test "$(git hash-object package-lock.json)" = 'fab28f877f266cc3e4e034b413e79254be38da4c'
+      - name: Prove source CI uses the frozen path
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in proof/lockfile-candidates/athleto/ci.yml proof/lockfile-candidates/claritas/ci.yml; do
+            grep -Fq 'node-version: "22.16.0"' "$f"
+            grep -Fq 'cache: npm' "$f"
+            grep -Fq 'cache-dependency-path: src/ts/package-lock.json' "$f"
+            grep -Fq 'npm ci --ignore-scripts --no-audit --no-fund && npm test' "$f"
+            ! grep -Fq 'npm install --no-audit --no-fund && npm test' "$f"
+          done
