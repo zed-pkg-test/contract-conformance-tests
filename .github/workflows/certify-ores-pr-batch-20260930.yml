@@ -1,0 +1,23 @@
+name: certify ORESoftware PR batch 2026-09-30
+
+on:
+  pull_request:
+    paths:
+      - "evidence/ores-pr-batch-20260930/**"
+      - "tools/verify_ores_pr_batch_20260930.sh"
+      - ".github/workflows/certify-ores-pr-batch-20260930.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  exact-source-fixtures:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out proof carrier
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Verify exact fixture snapshots
+        run: bash tools/verify_ores_pr_batch_20260930.sh
