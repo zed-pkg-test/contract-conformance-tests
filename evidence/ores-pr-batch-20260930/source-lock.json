@@ -1,0 +1,21 @@
+{
+  "schema": "ores.external-proof-lock/v1",
+  "sources": [
+    {
+      "repository": "ORESoftware/ores-e2e-core",
+      "pull_request": 5,
+      "head_sha": "be3b538c4f401100c06fac953321f3f466d48aa5",
+      "source_path": "fixtures/binary-payload-matrix-v1.json",
+      "source_blob_sha": "4ce41b901c2b43c206139c2ab3373e471191c3f9",
+      "snapshot": "evidence/ores-pr-batch-20260930/ores-e2e-core-5.json"
+    },
+    {
+      "repository": "ORESoftware/ores-common-desktop-infra",
+      "pull_request": 68,
+      "head_sha": "84a38d43179d51fde096ba8c658159d820a6f2a1",
+      "source_path": "conformance/cases/pony-generation-contract.json",
+      "source_blob_sha": "3df8540573e2dc865a7bb8a45990675820f907d6",
+      "snapshot": "evidence/ores-pr-batch-20260930/ores-common-desktop-infra-68.json"
+    }
+  ]
+}
