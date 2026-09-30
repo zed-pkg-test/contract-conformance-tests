@@ -1,0 +1,20 @@
+{
+  "schema": "ores.desktop-runtime-generation-case/v1",
+  "issue": 63,
+  "linear": "DEN-3045",
+  "product_id": "pony-expres",
+  "expected": {
+    "reuse_model": "tenant_generation_cell",
+    "reuse_key": ["tenant_id", "deployment_generation"],
+    "runtime_host_reuse_allowed": true
+  },
+  "negative_cases": [
+    {"reuse_key": ["tenant_id"], "reason": "deployment generation may not be dropped"},
+    {"reuse_model": "fresh_process", "reason": "stale shared authority"}
+  ],
+  "fallback_policy": {
+    "digest_fenced_regular_binary_reuse": true,
+    "unverifiable_path_or_name_only_reuse": false
+  },
+  "authority_invariant": "product_id values in fleet/runtime-contracts.json must be unique"
+}
