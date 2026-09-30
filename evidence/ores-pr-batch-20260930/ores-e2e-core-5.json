@@ -1,0 +1,23 @@
+{
+  "schema": "ores.e2e.binary-payload-matrix/v1",
+  "issue": 1,
+  "transports": ["http", "tcp", "websocket"],
+  "codecs": ["json", "messagepack", "cbor", "protobuf", "raw"],
+  "required_cases": [
+    "equivalent_semantic_result",
+    "non_utf8_byte_preservation",
+    "malformed_payload_rejected_before_dispatch",
+    "semantic_rejection_after_decode",
+    "request_reply_correlation",
+    "streaming_codec_stability",
+    "encoded_and_decompressed_limits"
+  ],
+  "http": ["unsupported_request_415", "unacceptable_response_406"],
+  "tcp": ["partial_frame", "multiple_frames", "over_limit_frame", "unknown_codec", "bounded_length_framing"],
+  "websocket": ["binary_frame", "codec_mismatch"],
+  "invariants": {
+    "framing_is_not_codec": true,
+    "raw_and_protobuf_preserve_bytes": true,
+    "semantic_validation_after_decode": true
+  }
+}
