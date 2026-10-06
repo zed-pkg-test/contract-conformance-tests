@@ -430,3 +430,34 @@ fi
 "#;
     assert_eq!(format_source(src).unwrap(), expected);
 }
+
+#[test]
+fn nested_braced_if_chain_keeps_enclosing_callable_indent() {
+    let src = r#"fnc choose(int value) => int {
+if value < 0 {
+return -1;
+}
+else if value == 0 {
+return 0;
+}
+else {
+return 1;
+}
+fi
+}
+"#;
+    let expected = r#"fnc choose(int value) -> int {
+  if value < 0 {
+    return -1;
+  }
+  elif value == 0 {
+    return 0;
+  }
+  else {
+    return 1;
+  }
+  fi
+}
+"#;
+    assert_eq!(format_source(src).unwrap(), expected);
+}

@@ -310,7 +310,7 @@ pub fn format_source(source: &str) -> Result<String, FormatError> {
             indent += 1;
         }
 
-        if branch_line {
+        if branch_line && branch_keyword_indented {
             indent += 1;
         }
     }
