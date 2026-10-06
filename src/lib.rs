@@ -919,6 +919,7 @@ mod tests {
   rt yield;
   rt yield();
   yield 1;
+  yield* values();
   stdio.stdout.write("rt yield");
   // rt yield
   return;
@@ -929,6 +930,7 @@ mod tests {
         assert!(got.contains("rt cooperate;"));
         assert!(got.contains("rt cooperate();"));
         assert!(got.contains("yield 1;"));
+        assert!(got.contains("yield* values();"));
         assert!(got.contains("\"rt yield\""));
         assert!(got.contains("// rt yield"));
         assert!(!got.contains("  rt yield;"));
