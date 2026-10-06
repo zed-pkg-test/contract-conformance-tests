@@ -5,6 +5,8 @@
 
 use std::fmt;
 
+mod select;
+
 const INDENT: &str = "  ";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,7 +83,8 @@ enum PrevEvent {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum KeywordTerminator {
-    Fi,
+    FiKeyword,
+    FiBraced,
     Done,
 }
 
@@ -96,13 +99,15 @@ struct LexState {
 ///
 /// The current formatter is intentionally configuration-free:
 ///
-/// - two-space indentation;
+/// - two-space indentation, never tabs for indentation;
+/// - braced static select arms, indented one level inside the select;
 /// - LF line endings and exactly one final newline;
 /// - trailing whitespace removed;
 /// - at most one ordinary blank line;
 /// - exactly two blank lines between sibling executable callable bodies;
 /// - executable callable return separators are canonicalized to `->`;
 /// - interface/trait callable signatures are canonicalized to `=>`;
+/// - legacy scheduler spelling `rt yield` is canonicalized to `rt cooperate`;
 /// - `end`, `fi`, `done`, braces, class/interface/trait/struct/module nesting,
 ///   actor bodies, and strings/comments are indentation-aware.
 ///
@@ -111,6 +116,7 @@ struct LexState {
 pub fn format_source(source: &str) -> Result<String, FormatError> {
     reject_multiline_literals(source)?;
     let normalized = source.replace("\r\n", "\n").replace('\r', "\n");
+    let normalized = select::normalize(&normalized)?;
     let mut out: Vec<String> = Vec::new();
     let mut indent = 0usize;
     let mut pending_blank = false;
@@ -130,6 +136,8 @@ pub fn format_source(source: &str) -> Result<String, FormatError> {
         }
 
         let mut content = trimmed_end.trim_start().to_string();
+        content = canonicalize_conditional_line(&content, lex);
+        content = canonicalize_rt_cooperate_line(&content, lex);
         let mut structural_lex = lex;
         let structural_content: String = scan_visible(&content, &mut structural_lex)
             .into_iter()
@@ -139,11 +147,16 @@ pub fn format_source(source: &str) -> Result<String, FormatError> {
         let starts_end = starts_word(structural, "end");
         let starts_fi = starts_word(structural, "fi");
         let starts_done = starts_word(structural, "done");
-        let branch_line = starts_word(structural, "else") || starts_word(structural, "elseif");
+        let branch_line = starts_word(structural, "else") || starts_word(structural, "elif");
+
+        let fi_keyword_indented =
+            starts_fi && matches!(keyword_stack.last(), Some(KeywordTerminator::FiKeyword));
+        let branch_keyword_indented =
+            branch_line && matches!(keyword_stack.last(), Some(KeywordTerminator::FiKeyword));
 
         if starts_fi {
             match keyword_stack.pop() {
-                Some(KeywordTerminator::Fi) => {}
+                Some(KeywordTerminator::FiKeyword | KeywordTerminator::FiBraced) => {}
                 Some(KeywordTerminator::Done) => {
                     return Err(FormatError::new(
                         line_no,
@@ -153,14 +166,14 @@ pub fn format_source(source: &str) -> Result<String, FormatError> {
                 None => {
                     return Err(FormatError::new(
                         line_no,
-                        "encountered `fi` without a matching `if ... do` block",
+                        "encountered `fi` without a matching `if ... then` block",
                     ));
                 }
             }
         } else if starts_done {
             match keyword_stack.pop() {
                 Some(KeywordTerminator::Done) => {}
-                Some(KeywordTerminator::Fi) => {
+                Some(KeywordTerminator::FiKeyword | KeywordTerminator::FiBraced) => {
                     return Err(FormatError::new(
                         line_no,
                         "encountered `done` where `fi` was expected",
@@ -175,15 +188,22 @@ pub fn format_source(source: &str) -> Result<String, FormatError> {
             }
         }
 
-        if branch_line && !matches!(keyword_stack.last(), Some(KeywordTerminator::Fi)) {
+        if branch_line
+            && !matches!(
+                keyword_stack.last(),
+                Some(KeywordTerminator::FiKeyword | KeywordTerminator::FiBraced)
+            )
+        {
             return Err(FormatError::new(
                 line_no,
-                "encountered `else`/`elseif` without a matching `if ... do` block",
+                "encountered `else`/`elif` without a matching `if ... then` block",
             ));
         }
 
         let leading_closing_braces = leading_closing_braces(structural);
-        let keyword_dedent = usize::from(starts_end || starts_fi || starts_done || branch_line);
+        let keyword_dedent = usize::from(
+            starts_end || starts_done || fi_keyword_indented || branch_keyword_indented,
+        );
         let pre_dedent = leading_closing_braces + keyword_dedent;
         indent = indent.saturating_sub(pre_dedent);
 
@@ -286,16 +306,17 @@ pub fn format_source(source: &str) -> Result<String, FormatError> {
             indent += 1;
         }
 
-        if opens_do_block(structural) && !branch_line {
-            keyword_stack.push(if starts_word(structural, "if") {
-                KeywordTerminator::Fi
-            } else {
-                KeywordTerminator::Done
-            });
+        if opens_conditional_block(structural) && !branch_line {
+            keyword_stack.push(KeywordTerminator::FiKeyword);
+            indent += 1;
+        } else if starts_word(structural, "if") && structural.contains('{') {
+            keyword_stack.push(KeywordTerminator::FiBraced);
+        } else if opens_do_block(structural) && !branch_line {
+            keyword_stack.push(KeywordTerminator::Done);
             indent += 1;
         }
 
-        if branch_line {
+        if branch_line && branch_keyword_indented {
             indent += 1;
         }
     }
@@ -320,7 +341,9 @@ pub fn format_source(source: &str) -> Result<String, FormatError> {
     }
     if let Some(terminator) = keyword_stack.last() {
         let message = match terminator {
-            KeywordTerminator::Fi => "unterminated `if ... do` block (expected `fi`)",
+            KeywordTerminator::FiKeyword | KeywordTerminator::FiBraced => {
+                "unterminated `if` block (expected `fi`)"
+            }
             KeywordTerminator::Done => "unterminated `... do` block (expected `done`)",
         };
         return Err(FormatError::new(normalized.lines().count().max(1), message));
@@ -457,7 +480,7 @@ fn is_callable_body_header(structural: &str, signature_context: bool) -> bool {
     }
     let lower = structural.trim_start();
     for kw in [
-        "if", "for", "while", "switch", "match", "catch", "recover", "defer",
+        "if", "for", "while", "switch", "match", "catch", "recover", "defer", "case", "default",
     ] {
         if starts_word(lower, kw) {
             return false;
@@ -584,6 +607,170 @@ fn callable_parameter_close(line: &str, limit: usize, initial: LexState) -> Opti
     }
 
     None
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct WordSpan {
+    start: usize,
+    end: usize,
+}
+
+fn canonicalize_conditional_line(line: &str, initial: LexState) -> String {
+    let words = visible_word_spans(line, initial);
+    if words.is_empty() {
+        return line.to_string();
+    }
+
+    let word = |span: WordSpan| &line[span.start..span.end];
+    let first = word(words[0]);
+
+    let mut replacements: Vec<(usize, usize, String)> = Vec::new();
+    let conditional = if first == "if" {
+        true
+    } else if first == "elseif" {
+        replacements.push((words[0].start, words[0].end, "elif".to_string()));
+        true
+    } else if first == "elif" {
+        true
+    } else if first == "else" && words.get(1).is_some_and(|span| word(*span) == "if") {
+        replacements.push((words[0].start, words[1].end, "elif".to_string()));
+        true
+    } else {
+        false
+    };
+
+    if !conditional {
+        return line.to_string();
+    }
+
+    // Braced conditionals do not use then/do. We still canonicalize branch
+    // aliases above so all source converges on "elif".
+    if first_visible_char_index(line, '{', initial).is_none()
+        && let Some(last) = words.last().copied()
+    {
+        let last_word = word(last);
+        if last_word == "do" || last_word == "then" {
+            let prefix = &line[..last.start];
+            let before = prefix.trim_end();
+            let replacement_start = before.len();
+            let replacement = if before.ends_with(';') {
+                " then".to_string()
+            } else {
+                "; then".to_string()
+            };
+            replacements.push((replacement_start, last.end, replacement));
+        }
+    }
+
+    if replacements.is_empty() {
+        return line.to_string();
+    }
+
+    replacements.sort_by_key(|(start, _, _)| *start);
+    for pair in replacements.windows(2) {
+        debug_assert!(
+            pair[0].1 <= pair[1].0,
+            "conditional rewrites must not overlap"
+        );
+    }
+
+    let mut result = line.to_string();
+    for (start, end, replacement) in replacements.into_iter().rev() {
+        result.replace_range(start..end, &replacement);
+    }
+    result
+}
+
+fn canonicalize_rt_cooperate_line(line: &str, initial: LexState) -> String {
+    let words = visible_word_spans(line, initial);
+    if words.len() < 2 {
+        return line.to_string();
+    }
+
+    let first = &line[words[0].start..words[0].end];
+    let second = &line[words[1].start..words[1].end];
+    if first != "rt" || second != "yield" {
+        return line.to_string();
+    }
+
+    // Rewrite only the runtime namespace operation token. Generator
+    // `yield value` remains untouched, as do strings/comments containing
+    // the compatibility spelling.
+    let mut result = line.to_string();
+    result.replace_range(words[1].start..words[1].end, "cooperate");
+    result
+}
+
+fn visible_word_spans(line: &str, initial: LexState) -> Vec<WordSpan> {
+    let chars: Vec<(usize, char)> = line.char_indices().collect();
+    let mut words = Vec::new();
+    let mut state = initial;
+    let mut i = 0usize;
+
+    while i < chars.len() {
+        let (start, c) = chars[i];
+        let next = chars.get(i + 1).map(|(_, c)| *c);
+
+        if state.block_comment {
+            if c == '*' && next == Some('/') {
+                state.block_comment = false;
+                i += 2;
+            } else {
+                i += 1;
+            }
+            continue;
+        }
+
+        if let Some(q) = state.quote {
+            if state.escape {
+                state.escape = false;
+            } else if c == '\\' {
+                state.escape = true;
+            } else if c == q {
+                state.quote = None;
+            }
+            i += 1;
+            continue;
+        }
+
+        if c == '/' && next == Some('/') {
+            break;
+        }
+        if c == '/' && next == Some('*') {
+            state.block_comment = true;
+            i += 2;
+            continue;
+        }
+        if matches!(c, '"' | '\'' | '`') {
+            state.quote = Some(c);
+            i += 1;
+            continue;
+        }
+
+        if is_ident_char(c) {
+            let mut end = start + c.len_utf8();
+            i += 1;
+            while i < chars.len() && is_ident_char(chars[i].1) {
+                end = chars[i].0 + chars[i].1.len_utf8();
+                i += 1;
+            }
+            words.push(WordSpan { start, end });
+            continue;
+        }
+
+        i += 1;
+    }
+
+    words
+}
+
+fn opens_conditional_block(line: &str) -> bool {
+    let t = line.trim_end();
+    starts_word(t.trim_start(), "if")
+        && (t.ends_with(" then")
+            || t.ends_with("; then")
+            || t.ends_with(" do")
+            || t.ends_with("; do"))
 }
 
 fn opens_do_block(line: &str) -> bool {
@@ -725,6 +912,28 @@ fn scan_visible(line: &str, state: &mut LexState) -> Vec<char> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonicalizes_rt_yield_without_touching_generator_yield_or_literals() {
+        let src = r#"fnc generator* values(): Iterator<int> {
+  rt yield;
+  rt yield();
+  yield 1;
+  stdio.stdout.write("rt yield");
+  // rt yield
+  return;
+}
+"#;
+
+        let got = format_source(src).unwrap();
+        assert!(got.contains("rt cooperate;"));
+        assert!(got.contains("rt cooperate();"));
+        assert!(got.contains("yield 1;"));
+        assert!(got.contains(""rt yield""));
+        assert!(got.contains("// rt yield"));
+        assert!(!got.contains("  rt yield;"));
+        assert!(!got.contains("  rt yield();"));
+    }
 
     #[test]
     fn canonicalizes_executable_and_signature_arrows() {
