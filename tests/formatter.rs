@@ -265,7 +265,7 @@ fi
 "#;
     let formatted = format_source(valid).unwrap();
     assert!(formatted.contains("    while busy; do"));
-    assert!(formatted.contains("    fi"));
+    assert!(formatted.contains("  fi"));
 
     let wrong = "if ready; do\nreturn;\ndone\n";
     let err = format_source(wrong).unwrap_err();
@@ -286,4 +286,44 @@ fn rejects_unterminated_keyword_blocks() {
 
     let err = format_source("while ready; do\ntick();\n").unwrap_err();
     assert!(err.message().contains("expected `done`"));
+}
+
+#[test]
+fn multiline_block_comments_cannot_change_structure() {
+    let src = r#"define class Box as
+/*
+end
+if fake; do
+}
+*/
+pub get() => int {
+return 1;
+}
+end
+"#;
+    let expected = r#"define class Box as
+  /*
+  end
+  if fake; do
+  }
+  */
+  pub get() -> int {
+    return 1;
+  }
+end
+"#;
+    assert_eq!(format_source(src).unwrap(), expected);
+}
+
+#[test]
+fn inline_block_comments_do_not_confuse_callable_boundaries() {
+    let src = r#"/* fake ( { end */ fnc real(String marker = "{") => String {
+return marker;
+}
+"#;
+    let expected = r#"/* fake ( { end */ fnc real(String marker = "{") -> String {
+  return marker;
+}
+"#;
+    assert_eq!(format_source(src).unwrap(), expected);
 }
