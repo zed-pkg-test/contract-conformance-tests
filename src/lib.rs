@@ -586,7 +586,6 @@ fn callable_parameter_close(line: &str, limit: usize, initial: LexState) -> Opti
     None
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct WordSpan {
     start: usize,
@@ -644,7 +643,10 @@ fn canonicalize_conditional_line(line: &str, initial: LexState) -> String {
 
     replacements.sort_by_key(|(start, _, _)| *start);
     for pair in replacements.windows(2) {
-        debug_assert!(pair[0].1 <= pair[1].0, "conditional rewrites must not overlap");
+        debug_assert!(
+            pair[0].1 <= pair[1].0,
+            "conditional rewrites must not overlap"
+        );
     }
 
     let mut result = line.to_string();
