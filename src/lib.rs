@@ -81,7 +81,8 @@ enum PrevEvent {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum KeywordTerminator {
-    Fi,
+    FiKeyword,
+    FiBraced,
     Done,
 }
 
@@ -142,9 +143,14 @@ pub fn format_source(source: &str) -> Result<String, FormatError> {
         let starts_done = starts_word(structural, "done");
         let branch_line = starts_word(structural, "else") || starts_word(structural, "elif");
 
+        let fi_keyword_indented =
+            starts_fi && matches!(keyword_stack.last(), Some(KeywordTerminator::FiKeyword));
+        let branch_keyword_indented =
+            branch_line && matches!(keyword_stack.last(), Some(KeywordTerminator::FiKeyword));
+
         if starts_fi {
             match keyword_stack.pop() {
-                Some(KeywordTerminator::Fi) => {}
+                Some(KeywordTerminator::FiKeyword | KeywordTerminator::FiBraced) => {}
                 Some(KeywordTerminator::Done) => {
                     return Err(FormatError::new(
                         line_no,
@@ -161,7 +167,7 @@ pub fn format_source(source: &str) -> Result<String, FormatError> {
         } else if starts_done {
             match keyword_stack.pop() {
                 Some(KeywordTerminator::Done) => {}
-                Some(KeywordTerminator::Fi) => {
+                Some(KeywordTerminator::FiKeyword | KeywordTerminator::FiBraced) => {
                     return Err(FormatError::new(
                         line_no,
                         "encountered `done` where `fi` was expected",
@@ -176,7 +182,12 @@ pub fn format_source(source: &str) -> Result<String, FormatError> {
             }
         }
 
-        if branch_line && !matches!(keyword_stack.last(), Some(KeywordTerminator::Fi)) {
+        if branch_line
+            && !matches!(
+                keyword_stack.last(),
+                Some(KeywordTerminator::FiKeyword | KeywordTerminator::FiBraced)
+            )
+        {
             return Err(FormatError::new(
                 line_no,
                 "encountered `else`/`elif` without a matching `if ... then` block",
@@ -184,7 +195,9 @@ pub fn format_source(source: &str) -> Result<String, FormatError> {
         }
 
         let leading_closing_braces = leading_closing_braces(structural);
-        let keyword_dedent = usize::from(starts_end || starts_fi || starts_done || branch_line);
+        let keyword_dedent = usize::from(
+            starts_end || starts_done || fi_keyword_indented || branch_keyword_indented,
+        );
         let pre_dedent = leading_closing_braces + keyword_dedent;
         indent = indent.saturating_sub(pre_dedent);
 
@@ -288,8 +301,10 @@ pub fn format_source(source: &str) -> Result<String, FormatError> {
         }
 
         if opens_conditional_block(structural) && !branch_line {
-            keyword_stack.push(KeywordTerminator::Fi);
+            keyword_stack.push(KeywordTerminator::FiKeyword);
             indent += 1;
+        } else if starts_word(structural, "if") && structural.contains('{') {
+            keyword_stack.push(KeywordTerminator::FiBraced);
         } else if opens_do_block(structural) && !branch_line {
             keyword_stack.push(KeywordTerminator::Done);
             indent += 1;
@@ -320,7 +335,9 @@ pub fn format_source(source: &str) -> Result<String, FormatError> {
     }
     if let Some(terminator) = keyword_stack.last() {
         let message = match terminator {
-            KeywordTerminator::Fi => "unterminated `if ... then` block (expected `fi`)",
+            KeywordTerminator::FiKeyword | KeywordTerminator::FiBraced => {
+                "unterminated `if` block (expected `fi`)"
+            }
             KeywordTerminator::Done => "unterminated `... do` block (expected `done`)",
         };
         return Err(FormatError::new(normalized.lines().count().max(1), message));
@@ -627,13 +644,15 @@ fn canonicalize_conditional_line(line: &str, initial: LexState) -> String {
     {
         let last_word = word(last);
         if last_word == "do" || last_word == "then" {
-            let before = line[..last.start].trim_end();
+            let prefix = &line[..last.start];
+            let before = prefix.trim_end();
+            let replacement_start = before.len();
             let replacement = if before.ends_with(';') {
-                "then".to_string()
+                " then".to_string()
             } else {
                 "; then".to_string()
             };
-            replacements.push((last.start, last.end, replacement));
+            replacements.push((replacement_start, last.end, replacement));
         }
     }
 
