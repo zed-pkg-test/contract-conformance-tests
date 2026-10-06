@@ -8,12 +8,15 @@ identical behavior.
 
 ## Canonical style
 
-- two spaces per indentation level;
+- two spaces per indentation level, never tabs for indentation;
+- static `select`, `nb select`, and `try select` arms are indented one level;
+- every `case` and `default` arm has a braced body;
 - LF line endings, no trailing whitespace, one final newline;
 - at most one ordinary blank line;
 - **two blank lines between sibling executable function/routine/method declarations**;
 - executable declarations and method implementations use the slim arrow `->`;
 - interface/trait callable signatures use the type-level fat arrow `=>`;
+- conditionals canonically use `if ...; then` / `elif ...; then` / `else` / `fi`;
 - class headers keep `as` after the complete inheritance/conformance clause:
 
 ```ores
@@ -30,6 +33,41 @@ The nesting engine understands `module`, `class`, `interface`, `trait`,
 `struct`, actor/braced bodies, `end`, `if`/`fi`, and `do`/`done`. In particular,
 `implements Foo, Bar` never creates formatter nesting; the class body begins
 only after the class header and is closed by its matching `end`.
+
+Conditional compatibility spellings are migrated automatically: deprecated
+`if ... do` becomes `if ...; then`, `elseif` becomes `elif`, and a
+single-`fi` `else if` branch becomes `elif`. Loop `do ... done` syntax is
+unchanged; the deprecation applies only to using `do` as an if/branch
+introducer.
+
+Static select arms use the same nesting rules as other blocks:
+
+```ores
+nb select {
+  case readch inbox: val value {
+    nb writech replies, value * 10;
+  }
+  default: {
+  }
+}
+```
+
+The formatter adds braces to legacy unbraced select arms, including read arms
+without a binding and write/default arms. Comments and literals retain their
+contents. Dynamic `select from cases` expressions retain their syntax.
+
+Streaming channel writes use ordinary `for ... of ...` loops or
+`for await ... of ...` over an async iterator. Both braced loops and `do`/`done`
+loops use two-space nesting:
+
+```ores
+for const value of values do
+  writech output, value;
+done
+for await const value of events() {
+  await nb writech output, value;
+}
+```
 
 The formatter is intentionally conservative about grammar that is still
 changing: it does not reorder declarations, imports, traits, interfaces, or
