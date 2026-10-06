@@ -1,0 +1,56 @@
+name: Exact Oreslang control-flow certification
+
+on:
+  push:
+    branches:
+      - ci/oreslang-pr391-and-format-pr14-20261006
+
+permissions:
+  contents: read
+
+jobs:
+  oreslang-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone exact public source mirror
+        run: |
+          git init /tmp/oreslang-source
+          cd /tmp/oreslang-source
+          git remote add origin https://github.com/gha-indie-worker/gha-indie-worker.rs.git
+          git fetch --depth=1 origin 8a97fc7ce8b96114c25a7b6a3157af54486bd37f
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD^{tree})" = "96ad42733624affdf9d2bd1be170acdc69459929"
+      - name: Set up GraalVM
+        uses: graalvm/setup-graalvm@v1
+        with:
+          version: '25.3'
+          java-version: '25'
+          distribution: 'graalvm'
+      - name: Run focused control-flow tests
+        working-directory: /tmp/oreslang-source
+        run: mvn -B -ntp -Dtest=BlockLoopControlFlowTest test
+      - name: Run full JVM verification
+        working-directory: /tmp/oreslang-source
+        run: mvn -B -ntp -Dores.runtime.carriers=native verify
+
+  oreslang-format:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone exact public formatter mirror
+        run: |
+          git init /tmp/oreslang-format
+          cd /tmp/oreslang-format
+          git remote add origin https://github.com/gha-indie-worker/gha-indie-worker.rs.git
+          git fetch --depth=1 origin 53ccb55a3fd71c5a336423e47f903ce8032bb489
+          git checkout --detach FETCH_HEAD
+          test "$(git rev-parse HEAD^{tree})" = "2e49c8d865baab1c4d7504d08978fe05631f74ec"
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Check formatting
+        working-directory: /tmp/oreslang-format
+        run: cargo fmt --all -- --check
+      - name: Run tests
+        working-directory: /tmp/oreslang-format
+        run: cargo test --all-targets
+      - name: Run clippy
+        working-directory: /tmp/oreslang-format
+        run: cargo clippy --all-targets -- -D warnings
