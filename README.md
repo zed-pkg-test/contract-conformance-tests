@@ -14,6 +14,7 @@ identical behavior.
 - **two blank lines between sibling executable function/routine/method declarations**;
 - executable declarations and method implementations use the slim arrow `->`;
 - interface/trait callable signatures use the type-level fat arrow `=>`;
+- conditionals canonically use `if ...; then` / `elif ...; then` / `else` / `fi`;
 - class headers keep `as` after the complete inheritance/conformance clause:
 
 ```ores
@@ -30,6 +31,12 @@ The nesting engine understands `module`, `class`, `interface`, `trait`,
 `struct`, actor/braced bodies, `end`, `if`/`fi`, and `do`/`done`. In particular,
 `implements Foo, Bar` never creates formatter nesting; the class body begins
 only after the class header and is closed by its matching `end`.
+
+Conditional compatibility spellings are migrated automatically: deprecated
+`if ... do` becomes `if ...; then`, `elseif` becomes `elif`, and a
+single-`fi` `else if` branch becomes `elif`. Loop `do ... done` syntax is
+unchanged; the deprecation applies only to using `do` as an if/branch
+introducer.
 
 The formatter is intentionally conservative about grammar that is still
 changing: it does not reorder declarations, imports, traits, interfaces, or

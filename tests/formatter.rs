@@ -264,6 +264,7 @@ fi
 }
 "#;
     let formatted = format_source(valid).unwrap();
+    assert!(formatted.contains("  if ready; then"));
     assert!(formatted.contains("    while busy; do"));
     assert!(formatted.contains("  fi"));
 
@@ -275,7 +276,7 @@ fi
     let err = format_source(orphan).unwrap_err();
     assert!(
         err.message()
-            .contains("without a matching `if ... do` block")
+            .contains("without a matching `if ... then` block")
     );
 }
 
@@ -341,6 +342,91 @@ end
     return 1;
   }
 end
+"#;
+    assert_eq!(format_source(src).unwrap(), expected);
+}
+
+#[test]
+fn canonicalizes_conditional_compatibility_spellings() {
+    let src = r#"fnc choose(int value) => int {
+if value < 0 do
+return -1;
+elseif value == 0; do
+return 0;
+else if value == 1 then
+return 1;
+else
+return 2;
+fi
+}
+"#;
+    let expected = r#"fnc choose(int value) -> int {
+  if value < 0; then
+    return -1;
+  elif value == 0; then
+    return 0;
+  elif value == 1; then
+    return 1;
+  else
+    return 2;
+  fi
+}
+"#;
+    assert_eq!(format_source(src).unwrap(), expected);
+}
+
+#[test]
+fn conditional_rewrites_ignore_strings_and_comments() {
+    let src = r#"fnc text() => String {
+// elseif fake; do
+if ready; do
+return "else if nope do";
+else
+return "then";
+fi
+}
+"#;
+    let expected = r#"fnc text() -> String {
+  // elseif fake; do
+  if ready; then
+    return "else if nope do";
+  else
+    return "then";
+  fi
+}
+"#;
+    assert_eq!(format_source(src).unwrap(), expected);
+}
+
+#[test]
+fn canonicalizes_braced_branch_aliases_without_inventing_then() {
+    let src = r#"if first {
+work();
+}
+elseif second {
+other();
+}
+else if third {
+third_work();
+}
+else {
+fallback();
+}
+fi
+"#;
+    let expected = r#"if first {
+  work();
+}
+elif second {
+  other();
+}
+elif third {
+  third_work();
+}
+else {
+  fallback();
+}
+fi
 "#;
     assert_eq!(format_source(src).unwrap(), expected);
 }
