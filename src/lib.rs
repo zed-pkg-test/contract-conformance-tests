@@ -625,7 +625,6 @@ fn first_visible_char_index(line: &str, needle: char, initial: LexState) -> Opti
         if state.block_comment {
             if c == '*' && next == Some('/') {
                 state.block_comment = false;
-                visible.push(' ');
                 i += 2;
             } else {
                 i += 1;
@@ -680,6 +679,7 @@ fn scan_visible(line: &str, state: &mut LexState) -> Vec<char> {
         if state.block_comment {
             if c == '*' && next == Some('/') {
                 state.block_comment = false;
+                visible.push(' ');
                 i += 2;
             } else {
                 i += 1;
