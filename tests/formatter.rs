@@ -327,3 +327,20 @@ return marker;
 "#;
     assert_eq!(format_source(src).unwrap(), expected);
 }
+
+#[test]
+fn block_comments_act_as_lexical_separators() {
+    let src = r#"define/* comment */class Box as
+pub get() => int {
+return 1;
+}
+end
+"#;
+    let expected = r#"define/* comment */class Box as
+  pub get() -> int {
+    return 1;
+  }
+end
+"#;
+    assert_eq!(format_source(src).unwrap(), expected);
+}

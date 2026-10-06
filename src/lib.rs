@@ -131,8 +131,9 @@ pub fn format_source(source: &str) -> Result<String, FormatError> {
 
         let mut content = trimmed_end.trim_start().to_string();
         let mut structural_lex = lex;
-        let structural_content: String =
-            scan_visible(&content, &mut structural_lex).into_iter().collect();
+        let structural_content: String = scan_visible(&content, &mut structural_lex)
+            .into_iter()
+            .collect();
         let structural = structural_content.trim_start();
 
         let starts_end = starts_word(structural, "end");
@@ -624,6 +625,7 @@ fn first_visible_char_index(line: &str, needle: char, initial: LexState) -> Opti
         if state.block_comment {
             if c == '*' && next == Some('/') {
                 state.block_comment = false;
+                visible.push(' ');
                 i += 2;
             } else {
                 i += 1;
@@ -701,11 +703,13 @@ fn scan_visible(line: &str, state: &mut LexState) -> Vec<char> {
             break;
         }
         if c == '/' && next == Some('*') {
+            visible.push(' ');
             state.block_comment = true;
             i += 2;
             continue;
         }
         if matches!(c, '"' | '\'' | '`') {
+            visible.push(' ');
             state.quote = Some(c);
             i += 1;
             continue;
