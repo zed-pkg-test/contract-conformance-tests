@@ -210,11 +210,7 @@ fn write_safety_overrides_require_write_mode() {
     let repo = TempRepo::new("override-mode");
     repo.write("sample.ores", UNFORMATTED);
 
-    let output = repo.run(&[
-        "--check",
-        "--ok-to-mod-untracked-files",
-        "sample.ores",
-    ]);
+    let output = repo.run(&["--check", "--ok-to-mod-untracked-files", "sample.ores"]);
 
     assert_eq!(output.status.code(), Some(2));
     assert!(
@@ -237,9 +233,7 @@ fn explicit_symlink_inputs_are_refused() {
 
     assert_eq!(output.status.code(), Some(2));
     assert_eq!(fs::read_to_string(target).unwrap(), UNFORMATTED);
-    assert!(
-        String::from_utf8_lossy(&output.stderr).contains("refusing explicit symlink input")
-    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("refusing explicit symlink input"));
 }
 
 #[cfg(unix)]

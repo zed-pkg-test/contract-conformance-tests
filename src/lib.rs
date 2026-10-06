@@ -315,10 +315,7 @@ pub fn format_source(source: &str) -> Result<String, FormatError> {
             KeywordTerminator::Fi => "unterminated `if ... do` block (expected `fi`)",
             KeywordTerminator::Done => "unterminated `... do` block (expected `done`)",
         };
-        return Err(FormatError::new(
-            normalized.lines().count().max(1),
-            message,
-        ));
+        return Err(FormatError::new(normalized.lines().count().max(1), message));
     }
 
     while out.last().is_some_and(|line| line.is_empty()) {

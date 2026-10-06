@@ -273,7 +273,10 @@ fi
 
     let orphan = "else\nreturn;\n";
     let err = format_source(orphan).unwrap_err();
-    assert!(err.message().contains("without a matching `if ... do` block"));
+    assert!(
+        err.message()
+            .contains("without a matching `if ... do` block")
+    );
 }
 
 #[test]
